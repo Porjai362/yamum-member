@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ระบบสมาชิก ยามุมยาเภสัช</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">ย</div>
+    <div>
+      <div class="brand-name" id="shopName">ร้านยามุมยาเภสัช</div>
+      <div class="brand-sub">ระบบสมาชิก · <span id="cwStatus" class="status">กำลังเชื่อมต่อ CW Pharma…</span> · <span id="appVer"></span></div>
+    </div>
+  </div>
+  <form class="quick" id="quickForm" autocomplete="off">
+    <input id="quickInput" placeholder="ค้นหา / สแกนบาร์โค้ดสมาชิก · ชื่อ · เบอร์โทร · รหัส" autofocus>
+  </form>
+</header>
+<nav class="tabs" id="tabs">
+  <a href="#dash">ภาพรวม</a>
+  <a href="#members">สมาชิก</a>
+  <a href="#activity">ประวัติแลกแต้ม</a>
+  <a href="#rewards">ของรางวัล</a>
+  <a href="#settings">ตั้งค่า</a>
+  <a href="/check" target="_blank" class="ext">หน้าเช็คแต้มลูกค้า ↗</a>
+</nav>
+<div class="update-bar" id="updateBar" hidden></div>
+<main id="main"></main>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer"></aside>
+<dialog id="dlg"></dialog>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# กุญแจเซ็นอัปเดต — ห้ามขึ้น GitHub เด็ดขาด (ใครได้ไปจะปล่อยอัปเดตปลอมได้)
+keys/
+
+# ไฟล์ที่ build ได้ (แจกผ่าน GitHub Releases แทน)
+*.exe
+*.exe.old
+*.exe.new
+*.exe.bad
+dist/
+update-skip.txt

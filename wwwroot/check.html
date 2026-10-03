@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เช็คแต้มสมาชิก</title>
+<style>
+  :root { --brand: #0f7a5f; --ink: #1d2b28; --muted: #6b7c78; --line: #e2e9e7;
+    --member: #7a8a86; --silver: #8d99ae; --gold: #c9971c; --platinum: #4b3f8f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: linear-gradient(160deg, #0f7a5f, #0b5a47); color: var(--ink);
+    font: 17px/1.5 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; display: grid; place-items: center; padding: 16px; }
+  .box { background: #fff; border-radius: 20px; width: min(440px, 100%); padding: 28px 24px; box-shadow: 0 20px 50px rgba(0,0,0,.25); text-align: center; }
+  h1 { font-size: 22px; margin: 0 0 4px; color: var(--brand); }
+  .muted { color: var(--muted); font-size: 14px; }
+  input { width: 100%; font: inherit; font-size: 28px; letter-spacing: 2px; text-align: center; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 18px 0 10px; }
+  input:focus { outline: none; border-color: var(--brand); }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pad button { font: inherit; font-size: 24px; padding: 12px; border: 0; border-radius: 12px; background: #eef4f2; cursor: pointer; }
+  .pad button:active { background: #d6e9e2; }
+  .go { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 20px; border: 0; border-radius: 12px; background: var(--brand); color: #fff; cursor: pointer; }
+  .pts { font-size: 64px; font-weight: 800; color: var(--brand); line-height: 1; margin: 10px 0 4px; }
+  .badge { display: inline-block; padding: 2px 14px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 15px; }
+  .t-member { background: var(--member); } .t-silver { background: var(--silver); } .t-gold { background: var(--gold); } .t-platinum { background: var(--platinum); }
+  .rw { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; text-align: left; }
+  .rw.ok b { color: var(--brand); }
+  .err { color: #c0392b; margin-top: 10px; min-height: 1.5em; }
+</style>
+</head>
+<body>
+<div class="box" id="box"></div>
+<script>
+const TIER = { member: 'สมาชิก', silver: 'ซิลเวอร์', gold: 'โกลด์', platinum: 'แพลทินัม' };
+const box = document.getElementById('box');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const n = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+let shop = 'ร้านยามุมยาเภสัช', timer;
+
+function form(msg = '') {
+  clearTimeout(timer);
+  box.innerHTML = `<h1>${esc(shop)}</h1><div class="muted">เช็คแต้มสะสมสมาชิก — ใส่เบอร์โทรศัพท์</div>
+    <input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autofocus>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9,'ลบ',0,'ล้าง'].map(k => `<button data-k="${k}">${k}</button>`).join('')}</div>
+    <button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
+  const ph = document.getElementById('ph');
+  box.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    ph.value = k === 'ลบ' ? ph.value.slice(0, -1) : k === 'ล้าง' ? '' : (ph.value + k).slice(0, 10);
+  });
+  ph.onkeydown = e => { if (e.key === 'Enter') check(ph.value); };
+  document.getElementById('go').onclick = () => check(ph.value);
+}
+
+async function check(phone) {
+  const res = await fetch('/api/check?phone=' + encodeURIComponent(phone));
+  const d = await res.json();
+  if (!res.ok) return form(d.error);
+  box.innerHTML = `<div class="muted">สวัสดีคุณ</div><h1>${esc(d.name)}</h1>
+    <div><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
+    <div class="pts">${n(d.points)}</div><div class="muted">แต้มสะสม</div>
+    ${d.benefit ? `<p>สิทธิพิเศษ: ${esc(d.benefit)}</p>` : ''}
+    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ฿${n(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}
+    <div style="margin-top:14px">${d.rewards.map(r => `<div class="rw ${d.points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}</span><b>${n(r.Points)} แต้ม</b></div>`).join('')}</div>
+    <p class="muted">แจ้งพนักงานเพื่อแลกของรางวัล</p><button class="go" onclick="form()">เสร็จสิ้น</button>`;
+  timer = setTimeout(form, 20000);
+}
+
+fetch('/api/settings').then(r => r.json()).then(s => { shop = s.ShopName || shop; form(); }).catch(() => form());
+</script>
+</body>
+</html>
