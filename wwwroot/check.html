@@ -9,6 +9,7 @@
     --danger: #c0392b; --danger-bg: #fdecea; --warn-bg: #fff6e0;
     --member: #7a8a86; --silver: #8d99ae; --gold: #c9971c; --platinum: #4b3f8f; }
   * { box-sizing: border-box; }
+  html { background: #0b5a47; }
   body { margin: 0; min-height: 100vh; background: linear-gradient(160deg, #0f7a5f, #0b5a47); color: var(--ink);
     font: 17px/1.55 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; padding: 16px; overflow-x: hidden; }
   .box { background: #fff; border-radius: 20px; width: min(620px, 100%); margin: 0 auto; padding: 22px 22px 26px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
@@ -55,6 +56,14 @@
   .back { font: inherit; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; margin-bottom: 8px; }
   .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); margin-left: 6px; }
   .row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .ptcard { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; padding: 14px 16px; border-radius: 14px; background: var(--brand-2); }
+  .ptcard .sub { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .ptnum { font-size: 40px; font-weight: 800; color: var(--brand); line-height: 1; }
+  .rewards { margin-top: 8px; font-size: 15px; }
+  .rewards summary { cursor: pointer; color: var(--brand); padding: 6px 0; }
+  .rewards .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .hh { font-size: 16px; margin: 18px 0 0; }
+  @media (max-width: 480px) { body { padding: 10px; } .box { padding: 18px 14px 22px; border-radius: 16px; } }
 </style>
 </head>
 <body>
@@ -112,13 +121,15 @@ function keypad(fields) {
     };
   });
 }
-const padHtml = `<div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 'ลบ', 0, 'ล้าง'].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`;
+// PUBLIC = เปิดผ่านเว็บไซต์ (มือถือลูกค้า): ไม่มีปุ่มตัวเลขบนจอ, เช็คแต้มต้องใช้ PIN
+let PUBLIC = false;
+const padHtml = () => PUBLIC ? '' : `<div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 'ลบ', 0, 'ล้าง'].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`;
 
 // ---------- เช็คแต้ม ----------
 function pointsForm(msg = '') {
   view.innerHTML = `<div class="muted center">ใส่เบอร์โทรศัพท์เพื่อดูแต้มสะสม</div>
-    <input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
-    ${padHtml}<button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
+    <input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+    ${padHtml()}<button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
   const ph = view.querySelector('#ph');
   keypad([ph]); ph.focus();
   const go = () => checkPoints(ph.value);
@@ -142,12 +153,12 @@ async function checkPoints(phone) {
 
 // ---------- ประวัติการจ่ายยา (ต้องใช้ PIN) ----------
 function historyForm(msg = '') {
-  view.innerHTML = `<div class="muted center">ดูประวัติการรับยาของคุณ — ใช้เบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่เคาน์เตอร์)</div>
-    <label class="lb">เบอร์โทรศัพท์</label><input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+  view.innerHTML = `<div class="muted center">ดู${PUBLIC ? 'แต้มสะสมและ' : ''}ประวัติการรับยาของคุณ — ใช้เบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่ร้าน)</div>
+    <label class="lb">เบอร์โทรศัพท์</label><input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
     <label class="lb">PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
-    ${padHtml}<button class="go" id="go">ดูประวัติยา</button><div class="err">${esc(msg)}</div>`;
+    ${padHtml()}<button class="go" id="go">${PUBLIC ? 'เข้าสู่ระบบ' : 'ดูประวัติยา'}</button><div class="err">${esc(msg)}</div>`;
   const ph = view.querySelector('#ph'), pin = view.querySelector('#pin');
-  keypad([ph, pin]); ph.focus();
+  keypad([ph, pin]); if (!PUBLIC) ph.focus();
   const go = () => loadHistory(ph.value, pin.value);
   pin.onkeydown = ph.onkeydown = e => { if (e.key === 'Enter') go(); };
   view.querySelector('#go').onclick = go;
@@ -160,8 +171,9 @@ async function loadHistory(phone, pin) {
   renderHistory();
 }
 
+const idleSec = () => PUBLIC ? 300 : 90;
 function renderHistory() {
-  privateScreen(90000, logout);
+  privateScreen(idleSec() * 1000, logout);
   const items = hist.items;
   let body;
   if (!items.length) body = '<p class="muted center">ยังไม่มีประวัติการรับยา</p>';
@@ -184,12 +196,21 @@ function renderHistory() {
         <div class="nm">${esc(i.Name)}${i.Returned ? '<span class="tag">คืนแล้ว</span>' : ''}</div>
         <div class="sub">${n(i.Qty)} ${esc(i.Unit || '')}${i.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('')}</div>`).join('');
   }
-  view.innerHTML = `<div class="row-top"><div><div class="muted">ประวัติการรับยาของ</div><h2>คุณ${esc(hist.name)}</h2></div>
+  const pts = hist.Points == null ? '' : `<div class="ptcard">
+      <div><span class="badge t-${hist.Tier}">${TIER[hist.Tier]}</span>${hist.Benefit ? `<div class="sub">${esc(hist.Benefit)}</div>` : ''}
+        ${hist.NextTier ? `<div class="sub">ซื้อเพิ่มอีก ฿${n(hist.ToNextTier)} ภายใน 12 เดือน เป็นระดับ ${TIER[hist.NextTier]}</div>` : ''}</div>
+      <div class="center"><div class="ptnum">${n(hist.Points)}</div><div class="sub">แต้มสะสม</div></div></div>
+    ${(hist.Rewards || []).length ? `<details class="rewards"><summary>ของรางวัลที่แลกได้</summary>${hist.Rewards.map(r =>
+      `<div class="rw ${hist.Points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}</span><b>${n(r.Points)} แต้ม</b></div>`).join('')}
+      <div class="sub">แลกได้ที่ร้าน แจ้งพนักงาน</div></details>` : ''}`;
+  view.innerHTML = `<div class="row-top"><div><div class="muted">สวัสดี</div><h2>คุณ${esc(hist.name)}</h2></div>
       <button class="chip" id="out">ออก</button></div>
+    ${pts}
+    <h3 class="hh">ประวัติการรับยา</h3>
     <div class="chips"><button class="chip ${histMode === 'drugs' ? 'on' : ''}" data-mode="drugs">ยาของฉัน</button>
       <button class="chip ${histMode === 'bills' ? 'on' : ''}" data-mode="bills">ตามวันที่ซื้อ</button></div>
     <div class="list">${body}</div>
-    <div class="note">หน้านี้จะออกจากระบบเองเมื่อไม่มีการใช้งาน 90 วินาที</div>`;
+    <div class="note">${PUBLIC ? 'ข้อมูลเป็นความลับส่วนตัว — กด "ออก" เมื่อใช้เสร็จ ' : ''}หน้านี้จะออกจากระบบเองเมื่อไม่มีการใช้งาน ${idleSec() >= 120 ? idleSec() / 60 + ' นาที' : idleSec() + ' วินาที'}</div>`;
   view.querySelector('#out').onclick = logout;
   view.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { histMode = b.dataset.mode; renderHistory(); });
   view.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug, renderHistory));
@@ -238,9 +259,19 @@ async function drugDetail(id, back) {
 }
 
 fetch('/api/settings').then(r => r.json()).then(s => { if (s.ShopName) document.getElementById('shop').textContent = s.ShopName; }).catch(() => {});
-const fromHash = () => { const h = location.hash.slice(1); return ['points', 'history', 'drugs'].includes(h) ? h : 'points'; };
+const tabs = () => PUBLIC ? ['history', 'drugs'] : ['points', 'history', 'drugs'];
+const fromHash = () => { const h = location.hash.slice(1); return tabs().includes(h) ? h : tabs()[0]; };
 window.addEventListener('hashchange', () => { if (fromHash() !== current) show(fromHash()); });
-show(fromHash());
+api('mode').then(m => { PUBLIC = !!m.public; }).catch(() => {}).then(() => {
+  if (PUBLIC) {
+    // เว็บไซต์: ไม่มีเช็คแต้มด้วยเบอร์อย่างเดียว — รวมแต้มไว้กับประวัติยา (ต้องใช้ PIN)
+    document.querySelector('[data-tab="points"]').remove();
+    document.querySelector('[data-tab="history"]').textContent = 'แต้มและประวัติยา';
+    document.querySelector('.tabs').style.gridTemplateColumns = 'repeat(2, 1fr)';
+    document.title = 'สมาชิก · ค้นหาวิธีใช้ยา';
+  }
+  show(fromHash());
+});
 </script>
 </body>
 </html>

@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -124,6 +124,8 @@ static class App
         Console.WriteLine("  (ปิดหน้าต่างนี้ = ปิดระบบสมาชิก)");
         if (!afterUpdate && !args.Contains("--no-browser")) OpenBrowser(url);
 
+        StartPublic(Cfg(cfg, "PublicListen", "http://localhost:8090/"));
+
         CleanupOldExe();
         new Thread(() => { try { DrugIndex(); } catch { } }) { IsBackground = true }.Start(); // โหลดข้อมูลยารอไว้ก่อน
         new Thread(UpdateLoop) { IsBackground = true }.Start();
@@ -133,8 +135,79 @@ static class App
             HttpListenerContext ctx;
             try { ctx = Listener.GetContext(); }
             catch { if (Restarting) { Thread.Sleep(Timeout.Infinite); } throw; }
-            ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o), ctx);
+            ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, false), ctx);
         }
+    }
+
+    // ---------- พอร์ตสาธารณะ (สำหรับเว็บไซต์ผ่าน Cloudflare Tunnel) ----------
+    // ให้บริการเฉพาะหน้าลูกค้า: แต้ม+ประวัติยา (ต้องใช้ PIN) และค้นหาวิธีใช้ยา — หน้าพนักงานเข้าไม่ได้จากพอร์ตนี้
+
+    static HttpListener PublicListener;
+
+    static void StartPublic(string prefix)
+    {
+        if (prefix.Equals("off", StringComparison.OrdinalIgnoreCase)) return;
+        PublicListener = new HttpListener();
+        PublicListener.Prefixes.Add(prefix);
+        try { PublicListener.Start(); }
+        catch (HttpListenerException e)
+        {
+            Console.WriteLine("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (" + prefix + "): " + e.Message);
+            return;
+        }
+        Console.WriteLine("  หน้าเว็บลูกค้า (สำหรับ Cloudflare Tunnel): " + prefix);
+        new Thread(() =>
+        {
+            while (true)
+            {
+                HttpListenerContext ctx;
+                try { ctx = PublicListener.GetContext(); }
+                catch { if (Restarting) return; Thread.Sleep(1000); continue; }
+                ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, true), ctx);
+            }
+        }) { IsBackground = true }.Start();
+    }
+
+    static readonly string[] PublicRoutes = { "mode", "settings", "drugs", "my/history" };
+
+    // จำกัดจำนวนครั้งต่อ IP กันการสุ่มเบอร์/PIN จากอินเทอร์เน็ต
+    static readonly Dictionary<string, List<DateTime>> RateHits = new Dictionary<string, List<DateTime>>();
+
+    static int RecentHits(string key, TimeSpan window, bool add)
+    {
+        lock (RateHits)
+        {
+            List<DateTime> list;
+            if (!RateHits.TryGetValue(key, out list)) RateHits[key] = list = new List<DateTime>();
+            var cutoff = DateTime.Now - window;
+            list.RemoveAll(t => t < cutoff);
+            if (add) list.Add(DateTime.Now);
+            if (RateHits.Count > 20000) // กันหน่วยความจำโตไม่หยุด
+                foreach (var k in RateHits.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToList()) RateHits.Remove(k);
+            return list.Count;
+        }
+    }
+
+    static string ClientIp(HttpListenerContext ctx)
+    {
+        // มาจาก Cloudflare Tunnel เท่านั้น (พอร์ตนี้ฟังแค่ localhost) จึงเชื่อ header นี้ได้
+        string ip = ctx.Request.Headers["CF-Connecting-IP"];
+        return string.IsNullOrEmpty(ip) ? ctx.Request.RemoteEndPoint.Address.ToString() : ip;
+    }
+
+    static void CheckPublicRequest(HttpListenerContext ctx, string route)
+    {
+        string ip = ClientIp(ctx);
+        if (RecentHits("all:" + ip, TimeSpan.FromMinutes(1), true) > 120)
+            throw new ApiError(429, "ใช้งานถี่เกินไป กรุณารอสักครู่");
+        if (route == "my/history")
+        {
+            if (RecentHits("fail:" + ip, TimeSpan.FromMinutes(30), false) >= 8)
+                throw new ApiError(429, "ใส่ข้อมูลผิดหลายครั้ง กรุณารอ 30 นาที");
+            if (RecentHits("login:" + ip, TimeSpan.FromMinutes(15), true) > 30)
+                throw new ApiError(429, "ใช้งานถี่เกินไป กรุณารอสักครู่");
+        }
+        if (ctx.Request.ContentLength64 > 8192) throw new ApiError(413, "ข้อมูลใหญ่เกินไป");
     }
 
     static void OpenBrowser(string url)
@@ -331,6 +404,7 @@ static class App
         Thread.Sleep(1500); // ให้คำตอบ API ส่งถึงหน้าเว็บก่อน
         Restarting = true;
         try { Listener.Stop(); } catch { }
+        try { if (PublicListener != null) PublicListener.Stop(); } catch { }
         Process proc = StartSelf(exe, "--after-update");
 
         for (int i = 0; proc != null && i < 60; i++)
@@ -486,21 +560,49 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
 
     // ---------- http ----------
 
-    static void Handle(HttpListenerContext ctx)
+    static void Handle(HttpListenerContext ctx, bool pub)
     {
+        string route = null;
         try
         {
             string path = ctx.Request.Url.AbsolutePath;
+            if (pub)
+            {
+                var h = ctx.Response.Headers;
+                h["X-Frame-Options"] = "DENY";
+                h["X-Content-Type-Options"] = "nosniff";
+                h["Referrer-Policy"] = "no-referrer";
+                h["Strict-Transport-Security"] = "max-age=31536000";
+            }
             if (path.StartsWith("/api/"))
-                WriteJson(ctx, 200, Api(ctx, path.Substring(5).Trim('/'), ctx.Request.HttpMethod));
+            {
+                route = path.Substring(5).Trim('/');
+                if (pub)
+                {
+                    if (!PublicRoutes.Any(r => route == r || route.StartsWith("drugs/"))) throw new ApiError(404, "ไม่พบหน้านี้");
+                    CheckPublicRequest(ctx, route);
+                }
+                WriteJson(ctx, 200, Api(ctx, route, ctx.Request.HttpMethod, pub));
+            }
+            else if (pub)
+            {
+                // เว็บสาธารณะมีแค่หน้าลูกค้าหน้าเดียว
+                if (path == "/" || path == "/check" || path == "/check.html") ServeStatic(ctx, "/check.html");
+                else ctx.Response.StatusCode = 404;
+            }
             else
                 ServeStatic(ctx, path);
         }
-        catch (ApiError e) { WriteJson(ctx, e.Status, new Dictionary<string, object> { { "error", e.Message } }); }
+        catch (ApiError e)
+        {
+            if (pub && route == "my/history" && e.Status == 403) RecentHits("fail:" + ClientIp(ctx), TimeSpan.FromMinutes(30), true);
+            WriteJson(ctx, e.Status, new Dictionary<string, object> { { "error", e.Message } });
+        }
         catch (Exception e)
         {
             Console.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " ERROR " + e.Message);
-            try { WriteJson(ctx, 500, new Dictionary<string, object> { { "error", e.Message } }); } catch { }
+            // ไม่ส่งรายละเอียดข้อผิดพลาด (เช่น SQL) ออกไปยังอินเทอร์เน็ต
+            try { WriteJson(ctx, 500, new Dictionary<string, object> { { "error", pub ? "ระบบขัดข้อง กรุณาลองใหม่" : e.Message } }); } catch { }
         }
         finally { try { ctx.Response.OutputStream.Close(); } catch { } }
     }
@@ -595,14 +697,16 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
             throw new ApiError(401, "ต้องใส่ PIN พนักงาน");
     }
 
-    static object Api(HttpListenerContext ctx, string route, string method)
+    static object Api(HttpListenerContext ctx, string route, string method, bool pub)
     {
         var seg = route.Split('/');
         bool post = method == "POST";
         if (route == "version") return new Dictionary<string, object> { { "version", AppVersion } };
+        if (route == "mode") return new Dictionary<string, object> { { "public", pub } };
         if (!route.StartsWith("update")) LastActivity = DateTime.Now;
 
         var s = Settings();
+        if (pub && route == "settings") return new Dictionary<string, object> { { "ShopName", s["ShopName"] } };
         if (route == "update" && !post) return UpdateInfo();
         if (route == "update/check" && post) return CheckUpdate();
         if (route == "update/install" && post)
@@ -644,7 +748,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         if (route == "check") return SelfCheck(s, Q(ctx, "phone"));
         if (route == "drugs") return DrugSearch(Q(ctx, "q"));
         if (seg[0] == "drugs" && seg.Length == 2) return DrugDetail(ParseId(seg[1]));
-        if (route == "my/history" && post) { var b = Body(ctx); return MyHistory(Str(b, "phone"), Str(b, "pin")); }
+        if (route == "my/history" && post) { var b = Body(ctx); return MyHistory(s, Str(b, "phone"), Str(b, "pin")); }
         throw new ApiError(404, "ไม่พบ API: " + route);
     }
 
@@ -1094,16 +1198,17 @@ INSERT dbo.MemberPin(CustomerId,PinHash,Salt,UpdatedBy) VALUES(@id,@h,@s,@by)",
         return new Dictionary<string, object> { { "ok", true } };
     }
 
-    static object MyHistory(string phone, string pin)
+    static object MyHistory(Dictionary<string, string> s, string phone, string pin)
     {
         string digits = Regex.Replace(phone, "[^0-9]", "");
         if (digits.Length < 9 || pin.Length == 0) throw new ApiError(400, "กรุณาใส่เบอร์โทรและ PIN");
-        const string wrong = "เบอร์โทรหรือ PIN ไม่ถูกต้อง";
+        // ข้อความเดียวกันทุกกรณี — ไม่บอกว่าเบอร์นี้มีในระบบ/มี PIN หรือไม่
+        const string wrong = "เบอร์โทรหรือ PIN ไม่ถูกต้อง (ถ้ายังไม่มี PIN ติดต่อพนักงานเพื่อตั้ง PIN)";
         // เบอร์เดียวอาจมีหลายคนในครอบครัว — หาคนที่ PIN ตรง
         var cands = Query(@"SELECT c.Id, c.FullName, m.PinHash, m.Salt, m.FailCount, m.LockedUntil
 FROM " + Cw + @"Customer c JOIN dbo.MemberPin m ON m.CustomerId=c.Id
 WHERE ISNULL(c.IsDelete,0)=0 AND REPLACE(REPLACE(c.Phone,'-',''),' ','') = @d", "@d", digits);
-        if (cands.Count == 0) throw new ApiError(403, wrong + " (ถ้ายังไม่มี PIN ติดต่อพนักงานเพื่อตั้ง PIN)");
+        if (cands.Count == 0) throw new ApiError(403, wrong);
         Dictionary<string, object> who = null;
         lock (WriteLock)
         {
@@ -1138,6 +1243,14 @@ SELECT TOP 500 o.Id OrderId, o.Order_Code Code, o.Date_Order Date, oi.Product_Id
 FROM " + Cw + "[Order] o JOIN " + Cw + "OrderItem oi ON oi.Order_Id=o.Id LEFT JOIN " + Cw + @"Product p ON p.Id=oi.Product_Id
 WHERE o.Customer_Id=@cid AND ISNULL(o.IsOrderCancel,0)=0 AND o.Order_Status=2 AND ISNULL(o.IsDelete,0)=0
 ORDER BY o.Date_Order DESC, oi.Id", "@cid", who["Id"]);
-        return new Dictionary<string, object> { { "name", MaskName((string)who["FullName"]) }, { "items", items } };
+        var res = new Dictionary<string, object> { { "name", MaskName((string)who["FullName"]) }, { "items", items } };
+        // แต้มสะสม (บนเว็บเช็คแต้มต้องผ่าน PIN เหมือนกัน)
+        var m = MemberRows(s, " AND c.Id=@id", "@id", who["Id"]).FirstOrDefault();
+        if (m != null)
+        {
+            foreach (var k in new[] { "Points", "Tier", "Benefit", "NextTier", "ToNextTier" }) res[k] = m[k];
+            res["Rewards"] = Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points");
+        }
+        return res;
     }
 }
