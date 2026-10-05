@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.5.0")]
+[assembly: System.Reflection.AssemblyVersion("1.8.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -46,6 +46,7 @@ static class App
         new[] { "IncludeWholesale", "0" },
         new[] { "StaffPin", "" },
         new[] { "AutoUpdate", "1" },
+        new[] { "PointSource", "cw" },
     };
 
     // โปรแกรมทำงานเบื้องหลัง มีไอคอนที่ถาดระบบ (มุมขวาล่าง) แทนหน้าต่างดำ — ปิดผิดไม่ได้ ปิดจากเมนูไอคอนเท่านั้น
@@ -121,7 +122,6 @@ static class App
         StartPublic(publicPrefix);
 
         CleanupOldExe();
-        new Thread(() => { try { DrugIndex(); } catch { } }) { IsBackground = true }.Start(); // โหลดข้อมูลยารอไว้ก่อน
         new Thread(UpdateLoop) { IsBackground = true }.Start();
         new Thread(() =>
         {
@@ -362,7 +362,9 @@ static class App
         catch { }
     }
 
-    static readonly string[] PublicRoutes = { "mode", "settings", "drugs", "my/history" };
+    static readonly string[] PublicRoutes = { "mode", "settings", "my/login", "my/profile", "my/pin", "my/logout", "my/edit" };
+    static bool IsPublicRoute(string route) { return PublicRoutes.Contains(route) || route.StartsWith("my/drug/"); }
+    static bool IsPinRoute(string route) { return route == "my/login" || route == "my/pin"; }
 
     // จำกัดจำนวนครั้งต่อ IP กันการสุ่มเบอร์/PIN จากอินเทอร์เน็ต
     static readonly Dictionary<string, List<DateTime>> RateHits = new Dictionary<string, List<DateTime>>();
@@ -394,7 +396,7 @@ static class App
         string ip = ClientIp(ctx);
         if (RecentHits("all:" + ip, TimeSpan.FromMinutes(1), true) > 120)
             throw new ApiError(429, "ใช้งานถี่เกินไป กรุณารอสักครู่");
-        if (route == "my/history")
+        if (IsPinRoute(route))
         {
             if (RecentHits("fail:" + ip, TimeSpan.FromMinutes(30), false) >= 8)
                 throw new ApiError(429, "ใส่ข้อมูลผิดหลายครั้ง กรุณารอ 30 นาที");
@@ -690,6 +692,15 @@ BEGIN
     CancelledAt datetime NULL, CancelledBy nvarchar(100) NULL);
   CREATE INDEX IX_Ledger_Customer ON dbo.Ledger(CustomerId);
 END
+IF OBJECT_ID('dbo.CustomerEdit') IS NULL
+BEGIN
+  CREATE TABLE dbo.CustomerEdit(
+    Id int IDENTITY PRIMARY KEY, CustomerId int NOT NULL, Field varchar(20) NOT NULL,
+    OldValue nvarchar(600) NULL, NewValue nvarchar(600) NULL,
+    Source varchar(10) NOT NULL, Status varchar(12) NOT NULL, Note nvarchar(300) NULL,
+    CreatedAt datetime NOT NULL DEFAULT GETDATE(), DecidedAt datetime NULL, DecidedBy nvarchar(100) NULL);
+  CREATE INDEX IX_CustomerEdit_Status ON dbo.CustomerEdit(Status, CustomerId);
+END
 IF OBJECT_ID('dbo.MemberPin') IS NULL
   CREATE TABLE dbo.MemberPin(
     CustomerId int NOT NULL PRIMARY KEY, PinHash varchar(100) NOT NULL, Salt varchar(50) NOT NULL,
@@ -775,7 +786,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
                 route = path.Substring(5).Trim('/');
                 if (pub)
                 {
-                    if (!PublicRoutes.Any(r => route == r || route.StartsWith("drugs/"))) throw new ApiError(404, "ไม่พบหน้านี้");
+                    if (!IsPublicRoute(route)) throw new ApiError(404, "ไม่พบหน้านี้");
                     CheckPublicRequest(ctx, route);
                 }
                 WriteJson(ctx, 200, Api(ctx, route, ctx.Request.HttpMethod, pub));
@@ -791,7 +802,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         }
         catch (ApiError e)
         {
-            if (pub && route == "my/history" && e.Status == 403) RecentHits("fail:" + ClientIp(ctx), TimeSpan.FromMinutes(30), true);
+            if (pub && IsPinRoute(route) && e.Status == 403) RecentHits("fail:" + ClientIp(ctx), TimeSpan.FromMinutes(30), true);
             WriteJson(ctx, e.Status, new Dictionary<string, object> { { "error", e.Message } });
         }
         catch (Exception e)
@@ -931,6 +942,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
             if (seg[2] == "redeem") return Redeem(s, id, Body(ctx));
             if (seg[2] == "adjust") return Adjust(s, id, Body(ctx));
             if (seg[2] == "pin") return SetMemberPin(id, Body(ctx));
+            if (seg[2] == "edit") return StaffEditCustomer(s, id, Body(ctx));
         }
         if (seg[0] == "orders" && seg.Length == 2) return OrderItems(ParseId(seg[1]));
         if (route == "ledger" && !post) return LedgerList(0, 200);
@@ -939,12 +951,23 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
             RequirePin(ctx, s);
             return CancelLedger(ParseId(seg[1]), Str(Body(ctx), "staff"));
         }
+        if (route == "edits" && !post) return EditList(Q(ctx, "status"), 0, 300);
+        if (seg[0] == "edits" && seg.Length == 3 && post && (seg[2] == "approve" || seg[2] == "reject"))
+        {
+            RequirePin(ctx, s);
+            return DecideEdit(ParseId(seg[1]), seg[2] == "approve", Body(ctx));
+        }
+        if (route == "points/recalc" && !post) return PointRecalc(s);
         if (route == "rewards" && !post) return Query("SELECT * FROM dbo.Reward ORDER BY IsActive DESC, Points");
         if (route == "rewards" && post) { RequirePin(ctx, s); return SaveReward(Body(ctx)); }
         if (route == "check") return SelfCheck(s, Q(ctx, "phone"));
-        if (route == "drugs") return DrugSearch(Q(ctx, "q"));
-        if (seg[0] == "drugs" && seg.Length == 2) return DrugDetail(ParseId(seg[1]));
-        if (route == "my/history" && post) { var b = Body(ctx); return MyHistory(s, Str(b, "phone"), Str(b, "pin")); }
+        // พื้นที่สมาชิก (ต้องเข้าสู่ระบบด้วยเบอร์ + PIN)
+        if (route == "my/login" && post) return MyLogin(s, Body(ctx));
+        if (route == "my/profile") return MyProfile(s, SessionCustomer(ctx));
+        if (route == "my/pin" && post) return MyChangePin(ctx, Body(ctx));
+        if (route == "my/logout" && post) return MyLogout(ctx);
+        if (route == "my/edit" && post) return MyEditRequest(s, ctx, Body(ctx));
+        if (seg.Length == 3 && seg[0] == "my" && seg[1] == "drug") { SessionCustomer(ctx); return DrugDetail(ParseId(seg[2])); }
         throw new ApiError(404, "ไม่พบ API: " + route);
     }
 
@@ -970,6 +993,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         var d = new Dictionary<string, object>();
         foreach (var kv in s) if (kv.Key != "StaffPin") d[kv.Key] = kv.Value;
         d["HasPin"] = s["StaffPin"].Length > 0;
+        d["CwPoint"] = CwPointConfig();
         d["CwDatabase"] = Cw.Split(']')[0].TrimStart('[');
         return d;
     }
@@ -988,6 +1012,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
                 if (!double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out n) || n <= 0)
                     throw new ApiError(400, k + " ต้องเป็นตัวเลขมากกว่า 0");
             }
+            if (k == "PointSource" && v != "cw" && v != "own") throw new ApiError(400, "แหล่งแต้มไม่ถูกต้อง");
             if (k == "PointStartDate")
             {
                 DateTime dt;
@@ -1011,14 +1036,83 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
     {
         return @"
 ret AS (
-  SELECT Order_Id, SUM(Price_Amount) amt FROM " + Cw + @"ProductBack
+  SELECT Order_Id, SUM(Price_Amount) amt,
+         SUM(ISNULL(RecPoint_Value,0)) retRec, SUM(ISNULL(PayPoint_Value,0)) retPay
+  FROM " + Cw + @"ProductBack
   WHERE ISNULL(IsCancel,0)=0 AND ProductBack_Status=2 GROUP BY Order_Id
 ), o AS (
   SELECT o.Id, o.Order_Code, o.Customer_Id cid, o.Date_Order d, o.OrderPriceNet gross,
-         ISNULL(r.amt,0) returned, o.OrderPriceNet - ISNULL(r.amt,0) net
+         ISNULL(r.amt,0) returned, o.OrderPriceNet - ISNULL(r.amt,0) net,
+         -- แต้มระบบ CW: ได้จากบิล (rec) / ใช้เป็นส่วนลด (pay) — หักส่วนที่คืนสินค้าแล้ว
+         ISNULL(o.RecPoint_Value,0) - ISNULL(r.retRec,0) rec, ISNULL(o.PayPoint_Value,0) - ISNULL(r.retPay,0) pay
   FROM " + Cw + @"[Order] o LEFT JOIN ret r ON r.Order_Id=o.Id
   WHERE ISNULL(o.IsOrderCancel,0)=0 AND o.Order_Status=2 AND ISNULL(o.IsDelete,0)=0
 )";
+    }
+
+    // ---------- แต้มจากระบบ CW ----------
+    // PointSource = "cw": ใช้แต้มสะสมของโปรแกรม CW เป็นหลัก (ยอดคงเหลือ = Customer.Rt_Point_Value)
+    //   ได้แต้ม/ใช้แต้มทำที่หน้าขาย CW — ระบบสมาชิกอ่านอย่างเดียว ไม่แลก/ปรับแต้มเอง (กันแต้มซ้ำสองที่)
+    // PointSource = "own": คำนวณแต้มเองจากยอดซื้อ + แลก/ปรับแต้มในระบบสมาชิก (แบบเดิม)
+
+    static bool CwPoints(Dictionary<string, string> s) { return s["PointSource"] != "own"; }
+
+    static Dictionary<string, object> CwPointCache;
+    static DateTime CwPointCacheAt;
+
+    // ตั้งค่าแต้มของ CW เก็บใน Branch.PointGlobalValue_Data (บีบอัด gzip + LosFormatter)
+    static Dictionary<string, object> CwPointConfig()
+    {
+        if (CwPointCache != null && DateTime.Now - CwPointCacheAt < TimeSpan.FromMinutes(10)) return CwPointCache;
+        var res = new Dictionary<string, object> { { "ok", false } };
+        try
+        {
+            string b64 = Convert.ToString(Scalar("SELECT TOP 1 CAST(PointGlobalValue_Data AS nvarchar(max)) FROM " + Cw + "Branch ORDER BY Id"));
+            if (!string.IsNullOrEmpty(b64))
+            {
+                byte[] b = Convert.FromBase64String(b64);
+                string los;
+                using (var gz = new System.IO.Compression.GZipStream(new MemoryStream(b, 4, b.Length - 4), System.IO.Compression.CompressionMode.Decompress))
+                using (var sr = new StreamReader(gz, Encoding.UTF8)) los = sr.ReadToEnd();
+                var d = new System.Web.UI.LosFormatter().Deserialize(los) as System.Collections.IDictionary;
+                if (d != null)
+                {
+                    Func<string, object> v = k => d.Contains(k) ? d[k] : null;
+                    Func<string, double> num = k => { double x; return double.TryParse(Convert.ToString(v(k), CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out x) ? x : 0; };
+                    Func<string, string> day = k => v(k) is DateTime && ((DateTime)v(k)).Year > 1900 ? ((DateTime)v(k)).ToString("yyyy-MM-dd") : null;
+                    res["ok"] = true;
+                    res["Active"] = Convert.ToBoolean(v("Rt_IsActvie") ?? false);
+                    res["RecActive"] = Convert.ToBoolean(v("Rt_IsActvie_Rec") ?? false);
+                    res["PayActive"] = Convert.ToBoolean(v("Rt_IsActvie_Pay") ?? false);
+                    res["RecPrice"] = num("Rt_RecPrice_Rate"); res["RecPoint"] = num("Rt_RecPoint_Rate");
+                    res["PayPrice"] = num("Rt_PayPrice_Rate"); res["PayPoint"] = num("Rt_PayPoint_Rate");
+                    res["Begin"] = day("Rt_Date_Begin"); res["End"] = day("Rt_Date_End");
+                }
+            }
+        }
+        catch (Exception e) { res["error"] = e.Message; }
+        CwPointCache = res;
+        CwPointCacheAt = DateTime.Now;
+        return res;
+    }
+
+    // ประวัติแต้ม รวมเป็นรายการเดียว (วันที่, แต้ม +/-, คำอธิบาย) เรียงล่าสุดก่อน
+    static List<Dictionary<string, object>> PointHistory(Dictionary<string, string> s, int id, List<Dictionary<string, object>> bills, bool forStaff)
+    {
+        var list = new List<Dictionary<string, object>>();
+        Action<object, double, string> add = (date, pts, text) =>
+            list.Add(new Dictionary<string, object> { { "Date", date }, { "Points", Math.Round(pts, 2) }, { "Text", text } });
+        foreach (var b in bills)
+        {
+            double rec = Convert.ToDouble(b["Points"]), pay = Convert.ToDouble(b["PayPoints"]);
+            if (rec != 0) add(b["Date"], rec, "ซื้อสินค้า ฿" + Convert.ToDouble(b["Net"]).ToString("#,0.##") + " · " + b["Code"]);
+            if (pay != 0) add(b["Date"], -pay, "ใช้แต้มเป็นส่วนลด · " + b["Code"]);
+        }
+        if (!CwPoints(s))
+            foreach (var l in Query("SELECT Kind, Points, Description, Staff, CreatedAt FROM dbo.Ledger WHERE CustomerId=@id AND IsCancelled=0", "@id", id))
+                add(l["CreatedAt"], Convert.ToDouble(l["Points"]),
+                    ((string)l["Kind"] == "redeem" ? "แลก " : "ปรับแต้ม · ") + l["Description"] + (forStaff && l["Staff"] != null ? " (" + l["Staff"] + ")" : ""));
+        return list.OrderByDescending(x => DateTime.Parse((string)x["Date"], CultureInfo.InvariantCulture)).ToList();
     }
 
     static List<Dictionary<string, object>> MemberRows(Dictionary<string, string> s, string where, params object[] kv)
@@ -1027,7 +1121,8 @@ ret AS (
 WITH " + OrdersCte() + @", agg AS (
   SELECT cid, COUNT(*) visits, SUM(net) spendAll, MAX(d) lastVisit,
          SUM(CASE WHEN d >= DATEADD(day,-365,GETDATE()) THEN net ELSE 0 END) spend365,
-         SUM(CASE WHEN d >= @pstart AND net > 0 THEN FLOOR(net/@bpp) ELSE 0 END) earned
+         SUM(CASE WHEN d >= @pstart AND net > 0 THEN FLOOR(net/@bpp) ELSE 0 END) earned,
+         SUM(rec) cwRec, SUM(pay) cwPay
   FROM o WHERE cid > 0 GROUP BY cid
 ), led AS (
   SELECT CustomerId,
@@ -1039,7 +1134,8 @@ SELECT c.Id, c.Customer_Code Code, c.BarCode, c.FullName, c.Phone, c.EmailAddres
        c.Address, c.Date_Register Registered, c.Intolerance Allergy, c.CongenitalDisease Disease, c.Comment,
        CAST(ISNULL(c.IsWholesaleCustomer,0) AS bit) Wholesale,
        ISNULL(a.visits,0) Visits, ISNULL(a.spendAll,0) SpendAll, ISNULL(a.spend365,0) Spend365, a.lastVisit LastVisit,
-       CAST(ISNULL(a.earned,0) AS int) Earned, ISNULL(l.redeemed,0) Redeemed, ISNULL(l.adjusted,0) Adjusted
+       CAST(ISNULL(a.earned,0) AS int) Earned, ISNULL(l.redeemed,0) Redeemed, ISNULL(l.adjusted,0) Adjusted,
+       ISNULL(c.Rt_Point_Value,0) CwBalance, ISNULL(a.cwRec,0) CwRec, ISNULL(a.cwPay,0) CwPay
 FROM " + Cw + @"Customer c
 LEFT JOIN agg a ON a.cid=c.Id
 LEFT JOIN led l ON l.CustomerId=c.Id
@@ -1050,9 +1146,18 @@ WHERE ISNULL(c.IsDelete,0)=0" + (s["IncludeWholesale"] == "1" ? "" : " AND ISNUL
             "@pstart", DateTime.ParseExact(s["PointStartDate"], "yyyy-MM-dd", CultureInfo.InvariantCulture),
             "@bpp", (decimal)Num(s, "BahtPerPoint") });
         var rows = Query(sql, args.ToArray());
+        bool cw = CwPoints(s);
         foreach (var r in rows)
         {
-            r["Points"] = Convert.ToInt32(r["Earned"]) + Convert.ToInt32(r["Adjusted"]) - Convert.ToInt32(r["Redeemed"]);
+            if (cw)
+            {
+                // ยอดคงเหลือจาก CW / ได้-ใช้ จากบิล / ส่วนต่าง = ปรับแต้มใน CW (เช่น ยกยอด หมดอายุ)
+                double bal = Math.Round(Convert.ToDouble(r["CwBalance"]), 2), rec = Math.Round(Convert.ToDouble(r["CwRec"]), 2), pay = Math.Round(Convert.ToDouble(r["CwPay"]), 2);
+                r["Points"] = bal; r["Earned"] = rec; r["Redeemed"] = pay; r["Adjusted"] = Math.Round(bal - (rec - pay), 2);
+            }
+            else
+                r["Points"] = Convert.ToInt32(r["Earned"]) + Convert.ToInt32(r["Adjusted"]) - Convert.ToInt32(r["Redeemed"]);
+            r.Remove("CwBalance"); r.Remove("CwRec"); r.Remove("CwPay");
             ApplyTier(r, s);
         }
         return rows;
@@ -1092,15 +1197,23 @@ WHERE ISNULL(c.IsDelete,0)=0" + (s["IncludeWholesale"] == "1" ? "" : " AND ISNUL
     static object MemberDetail(Dictionary<string, string> s, int id)
     {
         var m = GetMember(s, id);
-        var orders = Query("WITH " + OrdersCte() + @"
-SELECT TOP 300 Id, Order_Code Code, d Date, gross Gross, returned Returned, net Net,
-       CASE WHEN d >= @pstart AND net > 0 THEN CAST(FLOOR(net/@bpp) AS int) ELSE 0 END Points
-FROM o WHERE cid=@id ORDER BY d DESC",
-            "@id", id, "@pstart", DateTime.ParseExact(s["PointStartDate"], "yyyy-MM-dd", CultureInfo.InvariantCulture),
-            "@bpp", (decimal)Num(s, "BahtPerPoint"));
         return new Dictionary<string, object> {
-            { "member", m }, { "orders", orders }, { "ledger", LedgerList(id, 500) },
+            { "member", m }, { "orders", MemberOrders(s, id, 300) }, { "ledger", CwPoints(s) ? new List<Dictionary<string, object>>() : LedgerList(id, 500) },
+            { "pointSource", CwPoints(s) ? "cw" : "own" }, { "edits", EditList("", id, 50) },
             { "pin", Query("SELECT UpdatedAt, UpdatedBy, FailCount, LockedUntil FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault() } };
+    }
+
+    // บิลของสมาชิก พร้อมยอดสุทธิ (หักคืนสินค้า) และแต้มที่ได้ต่อบิล
+    static List<Dictionary<string, object>> MemberOrders(Dictionary<string, string> s, int id, int top)
+    {
+        return Query("WITH " + OrdersCte() + @"
+SELECT TOP (@top) Id, Order_Code Code, d Date, gross Gross, returned Returned, net Net,
+       CASE WHEN @cw = 1 THEN ROUND(rec, 2)
+            WHEN d >= @pstart AND net > 0 THEN FLOOR(net/@bpp) ELSE 0 END Points,
+       CASE WHEN @cw = 1 THEN ROUND(pay, 2) ELSE 0 END PayPoints
+FROM o WHERE cid=@id ORDER BY d DESC",
+            "@top", top, "@id", id, "@pstart", DateTime.ParseExact(s["PointStartDate"], "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            "@bpp", (decimal)Num(s, "BahtPerPoint"), "@cw", CwPoints(s) ? 1 : 0);
     }
 
     static object OrderItems(int orderId)
@@ -1122,8 +1235,11 @@ FROM dbo.Ledger l LEFT JOIN " + Cw + @"Customer c ON c.Id=l.CustomerId
 WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", customerId);
     }
 
+    const string CwPointMsg = "ระบบใช้แต้มจากโปรแกรม CW — ใช้แต้ม/ปรับแต้มที่โปรแกรม CW";
+
     static object Redeem(Dictionary<string, string> s, int id, Dictionary<string, object> b)
     {
+        if (CwPoints(s)) throw new ApiError(400, CwPointMsg);
         int rewardId = Int(b, "rewardId");
         int qty = b.ContainsKey("qty") ? Int(b, "qty") : 1;
         string staff = Str(b, "staff");
@@ -1148,6 +1264,7 @@ WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", cu
 
     static object Adjust(Dictionary<string, string> s, int id, Dictionary<string, object> b)
     {
+        if (CwPoints(s)) throw new ApiError(400, CwPointMsg);
         int pts = Int(b, "points");
         string reason = Str(b, "reason"), staff = Str(b, "staff");
         if (pts == 0) throw new ApiError(400, "จำนวนแต้มต้องไม่เป็น 0");
@@ -1191,6 +1308,200 @@ WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", cu
 
     static string Trunc(string s, int n) { return s.Length > n ? s.Substring(0, n) : s; }
 
+
+    // ---------- แก้ไขข้อมูลลูกค้า → บันทึกลงโปรแกรม CW ----------
+    // พนักงานแก้ได้ทันที / สมาชิกส่งคำขอจากหน้าเว็บ แล้วพนักงานอนุมัติ (ข้อมูลแพ้ยาสำคัญต่อความปลอดภัย จึงต้องผ่านเภสัชกร)
+    // ทุกการเปลี่ยนแปลงเก็บประวัติไว้ในตาราง CustomerEdit (ค่าเดิม → ค่าใหม่ ใครทำ เมื่อไร)
+
+    // คีย์ที่ใช้ในระบบ / คอลัมน์ใน CW Customer / ชื่อที่แสดง
+    static readonly string[][] EditFields = {
+        new[] { "Phone", "Phone", "เบอร์โทร" },
+        new[] { "Email", "EmailAddress", "อีเมล" },
+        new[] { "Address", "Address", "ที่อยู่" },
+        new[] { "BirthDate", "BirthDate", "วันเกิด" },
+        new[] { "Allergy", "Intolerance", "แพ้ยา" },
+        new[] { "Disease", "CongenitalDisease", "โรคประจำตัว" },
+    };
+
+    static string[] EditField(string key)
+    {
+        var f = EditFields.FirstOrDefault(x => x[0] == key);
+        if (f == null) throw new ApiError(400, "แก้ไขช่อง " + key + " ไม่ได้");
+        return f;
+    }
+
+    // ตรวจและจัดรูปแบบค่าใหม่ ให้ตรงกับชนิด/ความยาวคอลัมน์ใน CW
+    static string NormalizeEdit(string key, string v)
+    {
+        v = (v ?? "").Trim();
+        switch (key)
+        {
+            case "Phone":
+                v = Regex.Replace(v, "[^0-9]", "");
+                if (v.Length != 0 && (v.Length < 9 || v.Length > 10)) throw new ApiError(400, "เบอร์โทรต้องเป็นตัวเลข 9-10 หลัก");
+                return v;
+            case "Email":
+                if (v.Length > 50) throw new ApiError(400, "อีเมลยาวเกิน 50 ตัวอักษร");
+                if (v.Length > 0 && !Regex.IsMatch(v, @"^[^@\s]+@[^@\s]+\.[^@\s]+$")) throw new ApiError(400, "อีเมลไม่ถูกต้อง");
+                return v;
+            case "BirthDate":
+                if (v.Length == 0) return v;
+                DateTime d;
+                if (!DateTime.TryParseExact(v, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d) || d.Year < 1900 || d > DateTime.Today)
+                    throw new ApiError(400, "วันเกิดไม่ถูกต้อง");
+                return d.ToString("yyyy-MM-dd");
+            case "Address":
+                if (v.Length > 500) throw new ApiError(400, "ที่อยู่ยาวเกินไป");
+                return v;
+            default: // Allergy, Disease
+                if (v.Length > 500) throw new ApiError(400, EditField(key)[2] + " ยาวเกินไป");
+                return v;
+        }
+    }
+
+    static Dictionary<string, string> CustomerValues(int id)
+    {
+        var r = Query("SELECT Phone, EmailAddress, Address, BirthDate, Intolerance, CongenitalDisease FROM " + Cw + "Customer WHERE Id=@id AND ISNULL(IsDelete,0)=0", "@id", id).FirstOrDefault();
+        if (r == null) throw new ApiError(404, "ไม่พบลูกค้าในโปรแกรม CW");
+        var d = new Dictionary<string, string>();
+        foreach (var f in EditFields)
+        {
+            object v = r[f[1]];
+            d[f[0]] = v == null ? "" : f[0] == "BirthDate" ? ((string)v).Substring(0, 10) : Convert.ToString(v).Trim();
+        }
+        return d;
+    }
+
+    // เขียนลงตาราง Customer ของ CW (คอลัมน์จากรายการที่กำหนดไว้เท่านั้น)
+    static void WriteCustomerField(int id, string key, string value)
+    {
+        var f = EditField(key);
+        object p = value.Length == 0 ? (object)DBNull.Value
+            : key == "BirthDate" ? (object)DateTime.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture) : value;
+        int n = Exec("UPDATE " + Cw + "Customer SET [" + f[1] + "]=@v WHERE Id=@id", "@v", p, "@id", id);
+        if (n != 1) throw new ApiError(404, "ไม่พบลูกค้าในโปรแกรม CW");
+        Log("แก้ข้อมูลลูกค้า #" + id + " ใน CW: " + f[2]);
+    }
+
+    // พนักงานแก้ไขโดยตรง
+    static object StaffEditCustomer(Dictionary<string, string> s, int id, Dictionary<string, object> b)
+    {
+        string staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        var changes = new List<string[]>();
+        lock (WriteLock)
+        {
+            var cur = CustomerValues(id);
+            foreach (var f in EditFields)
+            {
+                if (!b.ContainsKey(f[0])) continue;
+                string v = NormalizeEdit(f[0], Str(b, f[0]));
+                if (v != cur[f[0]]) changes.Add(new[] { f[0], cur[f[0]], v });
+            }
+            foreach (var c in changes)
+            {
+                WriteCustomerField(id, c[0], c[2]);
+                Exec(@"INSERT dbo.CustomerEdit(CustomerId,Field,OldValue,NewValue,Source,Status,DecidedAt,DecidedBy)
+VALUES(@c,@f,@o,@n,'staff','applied',GETDATE(),@by)", "@c", id, "@f", c[0], "@o", c[1], "@n", c[2], "@by", Trunc(staff, 100));
+                // คำขอที่ค้างอยู่ของช่องเดียวกันไม่ต้องใช้แล้ว
+                Exec("UPDATE dbo.CustomerEdit SET Status='superseded', DecidedAt=GETDATE(), DecidedBy=@by WHERE CustomerId=@c AND Field=@f AND Status='pending'",
+                    "@c", id, "@f", c[0], "@by", Trunc(staff, 100));
+            }
+        }
+        if (changes.Count == 0) throw new ApiError(400, "ไม่มีข้อมูลที่เปลี่ยนแปลง");
+        return GetMember(s, id);
+    }
+
+    static List<Dictionary<string, object>> EditList(string status, int customerId, int top)
+    {
+        var rows = Query(@"SELECT TOP (@top) e.*, c.FullName, c.Customer_Code Code FROM dbo.CustomerEdit e
+LEFT JOIN " + Cw + @"Customer c ON c.Id=e.CustomerId
+WHERE (@st='' OR e.Status=@st) AND (@cid=0 OR e.CustomerId=@cid) ORDER BY e.Id DESC",
+            "@top", top, "@st", status, "@cid", customerId);
+        foreach (var r in rows) r["Label"] = EditField((string)r["Field"])[2];
+        return rows;
+    }
+
+    static object DecideEdit(int editId, bool approve, Dictionary<string, object> b)
+    {
+        string staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        lock (WriteLock)
+        {
+            var e = Query("SELECT * FROM dbo.CustomerEdit WHERE Id=@id", "@id", editId).FirstOrDefault();
+            if (e == null) throw new ApiError(404, "ไม่พบคำขอ");
+            if ((string)e["Status"] != "pending") throw new ApiError(400, "คำขอนี้ดำเนินการไปแล้ว");
+            int cid = Convert.ToInt32(e["CustomerId"]);
+            string key = (string)e["Field"];
+            if (approve)
+            {
+                string v = NormalizeEdit(key, (string)e["NewValue"]);
+                string old = CustomerValues(cid)[key];
+                WriteCustomerField(cid, key, v);
+                Exec("UPDATE dbo.CustomerEdit SET Status='approved', OldValue=@o, DecidedAt=GETDATE(), DecidedBy=@by WHERE Id=@id",
+                    "@id", editId, "@o", old, "@by", Trunc(staff, 100));
+            }
+            else
+                Exec("UPDATE dbo.CustomerEdit SET Status='rejected', Note=@n, DecidedAt=GETDATE(), DecidedBy=@by WHERE Id=@id",
+                    "@id", editId, "@n", Trunc(Str(b, "note"), 300), "@by", Trunc(staff, 100));
+        }
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    // สมาชิกส่งคำขอแก้ไขจากหน้าเว็บ (รอพนักงานอนุมัติ)
+    static object MyEditRequest(Dictionary<string, string> s, HttpListenerContext ctx, Dictionary<string, object> b)
+    {
+        int id = SessionCustomer(ctx);
+        string note = Trunc(Str(b, "note"), 300);
+        var cur = CustomerValues(id);
+        var changes = new List<string[]>();
+        foreach (var f in EditFields)
+        {
+            if (!b.ContainsKey(f[0])) continue;
+            string v = NormalizeEdit(f[0], Str(b, f[0]));
+            if (v != cur[f[0]]) changes.Add(new[] { f[0], cur[f[0]], v });
+        }
+        if (changes.Count == 0) throw new ApiError(400, "ไม่มีข้อมูลที่เปลี่ยนแปลง");
+        lock (WriteLock)
+        {
+            if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM dbo.CustomerEdit WHERE CustomerId=@c AND Status='pending' AND CreatedAt >= DATEADD(day,-1,GETDATE())", "@c", id)) >= 20)
+                throw new ApiError(429, "ส่งคำขอมากเกินไป กรุณารอพนักงานตรวจสอบ");
+            foreach (var c in changes)
+            {
+                // ส่งช่องเดิมซ้ำ ให้ใช้ค่าล่าสุด
+                Exec("UPDATE dbo.CustomerEdit SET Status='superseded', DecidedAt=GETDATE() WHERE CustomerId=@c AND Field=@f AND Status='pending'", "@c", id, "@f", c[0]);
+                Exec(@"INSERT dbo.CustomerEdit(CustomerId,Field,OldValue,NewValue,Source,Status,Note)
+VALUES(@c,@f,@o,@n,'member','pending',@note)", "@c", id, "@f", c[0], "@o", c[1], "@n", c[2], "@note", note);
+            }
+        }
+        Log("สมาชิก #" + id + " ส่งคำขอแก้ไขข้อมูล " + changes.Count + " รายการ");
+        return MyProfile(s, id);
+    }
+
+    // ---------- คำนวณแต้มย้อนหลังตามอัตราของ CW (ดูอย่างเดียว ยังไม่เขียนลง CW) ----------
+    // ใช้ตั้งค่าแต้มใน CW (ช่วงวันที่ + อัตราได้แต้ม) คิดจากยอดสุทธิแต่ละบิล (หักคืนสินค้าแล้ว) ปัดเศษแต้มลง
+    static object PointRecalc(Dictionary<string, string> s)
+    {
+        var c = CwPointConfig();
+        if (!(c["ok"] is bool && (bool)c["ok"])) throw new ApiError(400, "อ่านตั้งค่าแต้มของ CW ไม่ได้");
+        double price = Convert.ToDouble(c["RecPrice"]), pts = Convert.ToDouble(c["RecPoint"]);
+        if (price <= 0 || pts <= 0) throw new ApiError(400, "ยังไม่ได้ตั้งอัตราได้แต้มในโปรแกรม CW");
+        DateTime begin = c["Begin"] == null ? new DateTime(1900, 1, 1) : DateTime.ParseExact((string)c["Begin"], "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        DateTime end = c["End"] == null ? DateTime.MaxValue.Date : DateTime.ParseExact((string)c["End"], "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var rows = Query("WITH " + OrdersCte() + @"
+SELECT o.cid Id, c.Customer_Code Code, c.FullName, COUNT(*) Bills, SUM(o.net) Net,
+       SUM(FLOOR(o.net / @price) * @pts) Calc, ISNULL(MAX(c.Rt_Point_Value),0) InCw
+FROM o JOIN " + Cw + @"Customer c ON c.Id=o.cid
+WHERE o.cid > 0 AND o.net > 0 AND o.d >= @b AND o.d < @e AND ISNULL(c.IsDelete,0)=0" +
+            (s["IncludeWholesale"] == "1" ? "" : " AND ISNULL(c.IsWholesaleCustomer,0)=0") + @"
+GROUP BY o.cid, c.Customer_Code, c.FullName ORDER BY Calc DESC",
+            "@price", (decimal)price, "@pts", pts, "@b", begin, "@e", end);
+        return new Dictionary<string, object> {
+            { "config", c }, { "rows", rows },
+            { "totalCalc", rows.Sum(r => Convert.ToDouble(r["Calc"])) },
+            { "totalCurrent", rows.Sum(r => Convert.ToDouble(r["InCw"])) } };
+    }
+
     // ---------- dashboard / self check ----------
 
     static object Dashboard(Dictionary<string, string> s)
@@ -1208,14 +1519,24 @@ FROM o WHERE d >= @m", "@m", month)[0];
         var tiers = new Dictionary<string, int> { { "member", 0 }, { "silver", 0 }, { "gold", 0 }, { "platinum", 0 } };
         foreach (var r in all) tiers[(string)r["Tier"]]++;
 
-        var redeemMonth = Query(@"SELECT COUNT(*) N, ISNULL(-SUM(Points),0) Points FROM dbo.Ledger
+        // ใช้แต้มเดือนนี้: แบบ CW = บิลที่ใช้แต้มเป็นส่วนลด / แบบเดิม = การแลกในระบบสมาชิก
+        var redeemMonth = CwPoints(s)
+            ? Query("WITH " + OrdersCte() + " SELECT COUNT(*) N, ISNULL(SUM(pay),0) Points FROM o WHERE pay > 0 AND d >= @m", "@m", month)[0]
+            : Query(@"SELECT COUNT(*) N, ISNULL(-SUM(Points),0) Points FROM dbo.Ledger
             WHERE Kind='redeem' AND IsCancelled=0 AND CreatedAt >= @m", "@m", month)[0];
+        var recent = CwPoints(s)
+            ? Query("WITH " + OrdersCte() + @" SELECT TOP 10 o.d CreatedAt, o.cid CustomerId, c.FullName, c.Customer_Code Code,
+  CASE WHEN o.pay > 0 THEN 'redeem' ELSE 'earn' END Kind, ROUND(o.rec - o.pay, 2) Points,
+  o.Order_Code + CASE WHEN o.pay > 0 THEN N' · ใช้ ' + CAST(ROUND(o.pay,2) AS nvarchar(20)) + N' แต้ม' ELSE N'' END Description,
+  CAST(0 AS bit) IsCancelled, NULL Staff
+FROM o JOIN " + Cw + "Customer c ON c.Id=o.cid WHERE o.cid > 0 AND (o.rec <> 0 OR o.pay <> 0) ORDER BY o.d DESC")
+            : LedgerList(0, 10);
 
         return new Dictionary<string, object> {
             { "members", all.Count },
             { "active90", all.Count(r => { var d = dt(r["LastVisit"]); return d.HasValue && d.Value >= now.AddDays(-90); }) },
             { "newThisMonth", all.Count(r => { var d = dt(r["Registered"]); return d.HasValue && d.Value >= month; }) },
-            { "pointsOutstanding", all.Sum(r => Math.Max(0, Convert.ToInt32(r["Points"]))) },
+            { "pointsOutstanding", Math.Round(all.Sum(r => Math.Max(0, Convert.ToDouble(r["Points"]))), 2) },
             { "tiers", tiers },
             { "sales", sales },
             { "redeemMonth", redeemMonth },
@@ -1224,7 +1545,7 @@ FROM o WHERE d >= @m", "@m", month)[0];
             { "top", all.OrderByDescending(r => Convert.ToDouble(r["Spend365"])).Take(10).ToList() },
             { "dormant", all.Where(r => { var d = dt(r["LastVisit"]); return d.HasValue && d.Value < now.AddDays(-60) && Convert.ToInt32(r["Visits"]) >= 2; })
                             .OrderByDescending(r => Convert.ToDouble(r["Spend365"])).Take(10).ToList() },
-            { "recent", LedgerList(0, 10) },
+            { "recent", recent },
         };
     }
 
@@ -1238,7 +1559,7 @@ FROM o WHERE d >= @m", "@m", month)[0];
         return new Dictionary<string, object> {
             { "name", MaskName((string)r["FullName"]) }, { "points", r["Points"] }, { "tier", r["Tier"] }, { "benefit", r["Benefit"] },
             { "nextTier", r["NextTier"] }, { "toNextTier", r["ToNextTier"] }, { "spend365", r["Spend365"] },
-            { "rewards", Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points") } };
+            { "rewards", CwPoints(s) ? new List<Dictionary<string, object>>() : Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points") } };
     }
 
     static string MaskName(string name)
@@ -1265,96 +1586,6 @@ WHERE ISNULL(p.IsDelete,0)=0 " + where;
     }
 
 
-    // ชื่อยาใน CW เป็นภาษาอังกฤษ — แปลงชื่อสามัญภาษาไทยที่ลูกค้าคุ้นเป็นชื่ออังกฤษ
-    static readonly string[][] ThaiDrugNames = {
-        new[] { "พาราเซตามอล", "paracetamol" }, new[] { "พาราเซตตามอล", "paracetamol" }, new[] { "อะเซตามิโนเฟน", "paracetamol" },
-        new[] { "ไอบูโพรเฟน", "ibuprofen" }, new[] { "ไอบูโปรเฟน", "ibuprofen" }, new[] { "นาพรอกเซน", "naproxen" },
-        new[] { "ไดโคลฟีแนค", "diclofenac" }, new[] { "ไดโคลฟิแนค", "diclofenac" }, new[] { "เซเลคอกซิบ", "celecoxib" },
-        new[] { "เมล็อกซิแคม", "meloxicam" }, new[] { "มีล็อกซิแคม", "meloxicam" }, new[] { "ไพร็อกซิแคม", "piroxicam" },
-        new[] { "เอทอริคอกซิบ", "etoricoxib" }, new[] { "แอสไพริน", "aspirin" }, new[] { "ออร์เฟนาดรีน", "orphenadrine" },
-        new[] { "โทลเพอริโซน", "tolperisone" }, new[] { "อะม็อกซีซิลลิน", "amoxicillin" }, new[] { "อะมอกซีซิลลิน", "amoxicillin" },
-        new[] { "อะม็อกซี่", "amoxicillin" }, new[] { "ดอกซีไซคลิน", "doxycycline" }, new[] { "ไซโปรฟลอกซาซิน", "ciprofloxacin" },
-        new[] { "นอร์ฟลอกซาซิน", "norfloxacin" }, new[] { "เมโทรนิดาโซล", "metronidazole" }, new[] { "อะซิโทรมัยซิน", "azithromycin" },
-        new[] { "ร็อกซิโทรมัยซิน", "roxithromycin" }, new[] { "ไดคล็อกซาซิลลิน", "dicloxacillin" }, new[] { "เซฟาเลกซิน", "cephalexin" },
-        new[] { "คลอเฟนิรามีน", "chlorpheniramine" }, new[] { "คลอร์เฟนิรามีน", "chlorpheniramine" }, new[] { "เซทิริซีน", "cetirizine" },
-        new[] { "ลอราทาดีน", "loratadine" }, new[] { "เดสลอราทาดีน", "desloratadine" }, new[] { "เฟกโซเฟนาดีน", "fexofenadine" },
-        new[] { "เลโวเซทิริซีน", "levocetirizine" }, new[] { "บรอมเฮกซีน", "bromhexine" }, new[] { "แอมบรอกซอล", "ambroxol" },
-        new[] { "คาร์โบซิสเทอีน", "carbocisteine" }, new[] { "เด็กซ์โทรเมทอร์แฟน", "dextromethorphan" }, new[] { "กัวเฟนิซิน", "guaifenesin" },
-        new[] { "ซูโดอีเฟดรีน", "pseudoephedrine" }, new[] { "โอเมพราโซล", "omeprazole" }, new[] { "แลนโซพราโซล", "lansoprazole" },
-        new[] { "ฟาโมทิดีน", "famotidine" }, new[] { "ดอมเพอริโดน", "domperidone" }, new[] { "ไซเมทิโคน", "simethicone" },
-        new[] { "ลอเปอราไมด์", "loperamide" }, new[] { "ไฮออสซีน", "hyoscine" }, new[] { "บิสาโคดิล", "bisacodyl" },
-        new[] { "ไบซาโคดิล", "bisacodyl" }, new[] { "เมทฟอร์มิน", "metformin" }, new[] { "กลิพิไซด์", "glipizide" },
-        new[] { "แอมโลดิปีน", "amlodipine" }, new[] { "ลอซาร์แทน", "losartan" }, new[] { "เอนาลาพริล", "enalapril" },
-        new[] { "ซิมวาสแตติน", "simvastatin" }, new[] { "อะทอร์วาสแตติน", "atorvastatin" }, new[] { "คลอทริมาโซล", "clotrimazole" },
-        new[] { "คีโตโคนาโซล", "ketoconazole" }, new[] { "ไตรแอมซิโนโลน", "triamcinolone" }, new[] { "เบตาเมทาโซน", "betamethasone" },
-        new[] { "ไฮโดรคอร์ติโซน", "hydrocortisone" }, new[] { "อะไซโคลเวียร์", "acyclovir" }, new[] { "เพรดนิโซโลน", "prednisolone" },
-        new[] { "มิวพิโรซิน", "mupirocin" }, new[] { "วิตามินซี", "vitamin c" }, new[] { "ธาตุเหล็ก", "ferrous" },
-        new[] { "กรดโฟลิก", "folic" }, new[] { "แคลเซียม", "calcium" }, new[] { "สังกะสี", "zinc" },
-        new[] { "ไดเมนไฮดริเนต", "dimenhydrinate" }, new[] { "เบตาฮีสทีน", "betahistine" }, new[] { "ฟลูนาริซีน", "flunarizine" },
-    };
-
-    static List<string> ThaiAliases(string q)
-    {
-        var terms = new List<string>();
-        if (q.Length < 3) return terms;
-        foreach (var a in ThaiDrugNames)
-            if ((a[0].StartsWith(q) || q.StartsWith(a[0])) && !terms.Contains(a[1])) terms.Add(a[1]);
-        return terms.Take(4).ToList();
-    }
-
-    static object DrugSearch(string q)
-    {
-        if (q.Length < 2) throw new ApiError(400, "พิมพ์ชื่อยาอย่างน้อย 2 ตัวอักษร");
-        if (q.Length > 60) q = q.Substring(0, 60);
-        var names = new List<string> { q.ToLowerInvariant() };
-        names.AddRange(ThaiAliases(q));
-        // อันดับ: ชื่อขึ้นต้นด้วยคำค้น > ชื่อ/ตัวยาตรง > พบในสรรพคุณหรือวิธีใช้ (เช่นค้น "ลดไข้")
-        var hits = new List<KeyValuePair<int, Dictionary<string, object>>>();
-        foreach (var d in DrugIndex())
-        {
-            string nameKey = (string)d["_names"];
-            int rank;
-            if (((string)d["Name"]).StartsWith(q, StringComparison.OrdinalIgnoreCase)) rank = 0;
-            else if (names.Any(n => nameKey.Contains(n)) || (string)d["_barcode"] == q) rank = 1;
-            else if (((string)d["_text"]).Contains(names[0])) rank = 2;
-            else continue;
-            hits.Add(new KeyValuePair<int, Dictionary<string, object>>(rank, d));
-        }
-        return hits.OrderBy(h => h.Key).ThenBy(h => (string)h.Value["Name"], StringComparer.OrdinalIgnoreCase).Take(40)
-            .Select(h =>
-            {
-                string u = (string)h.Value["Using"] ?? (string)h.Value["Property"] ?? "";
-                return new Dictionary<string, object> {
-                    { "Id", h.Value["Id"] }, { "Name", h.Value["Name"] }, { "NameEng", h.Value["NameEng"] }, { "Generic", h.Value["Generic"] },
-                    { "Snippet", u.Length > 110 ? u.Substring(0, 110) + "…" : u }, { "ByUse", h.Key == 2 } };
-            }).ToList();
-    }
-
-    // โหลดข้อมูลยาทั้งหมดไว้ในหน่วยความจำ (~8,000 รายการ) ค้นหาได้ทันที รีเฟรชจาก CW ทุก 10 นาที
-    static List<Dictionary<string, object>> DrugCache;
-    static DateTime DrugCacheAt;
-    static readonly object DrugCacheLock = new object();
-
-    static List<Dictionary<string, object>> DrugIndex()
-    {
-        lock (DrugCacheLock)
-        {
-            if (DrugCache != null && DateTime.Now - DrugCacheAt < TimeSpan.FromMinutes(10)) return DrugCache;
-            var rows = Query("SELECT * FROM (" + DrugInfoSql("", "",
-                "ISNULL(p.Product_LabelName,'') LabelName, ISNULL(p.BarCode,'') BarCode,") +
-                ") d WHERE d.Using IS NOT NULL OR d.Property IS NOT NULL");
-            foreach (var r in rows)
-            {
-                r["_names"] = string.Join("\n", (string)r["Name"], (string)r["LabelName"], (string)r["NameEng"] ?? "", (string)r["Generic"] ?? "").ToLowerInvariant();
-                r["_text"] = string.Join("\n", (string)r["Property"] ?? "", (string)r["Using"] ?? "").ToLowerInvariant();
-                r["_barcode"] = r["BarCode"];
-            }
-            DrugCache = rows;
-            DrugCacheAt = DateTime.Now;
-            return rows;
-        }
-    }
-
     static object DrugDetail(int id)
     {
         var rows = Query(DrugInfoSql(" AND p.Id=@id", "TOP 1"), "@id", id);
@@ -1372,65 +1603,145 @@ WHERE ISNULL(p.IsDelete,0)=0 " + where;
             return Convert.ToBase64String(kdf.GetBytes(32));
     }
 
-    static object SetMemberPin(int id, Dictionary<string, object> b)
+    static void ValidateNewPin(string pin)
     {
-        string pin = Str(b, "pin"), staff = Str(b, "staff");
-        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
-        if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM " + Cw + "Customer WHERE Id=@id", "@id", id)) == 0) throw new ApiError(404, "ไม่พบสมาชิก");
-        if (pin.Length == 0)
-        {
-            Exec("DELETE FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id);
-            return new Dictionary<string, object> { { "ok", true } };
-        }
         if (!Regex.IsMatch(pin, "^[0-9]{4,6}$")) throw new ApiError(400, "PIN ต้องเป็นตัวเลข 4-6 หลัก");
         if (Regex.IsMatch(pin, @"^(\d)\1+$") || "0123456789".Contains(pin) || "9876543210".Contains(pin))
             throw new ApiError(400, "PIN เดาง่ายเกินไป (เช่น 1111, 1234) กรุณาเลือกใหม่");
+    }
+
+    static void StorePin(int id, string pin, string by)
+    {
         var saltBytes = new byte[16];
         using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(saltBytes);
         string salt = Convert.ToBase64String(saltBytes);
         Exec(@"DELETE FROM dbo.MemberPin WHERE CustomerId=@id;
 INSERT dbo.MemberPin(CustomerId,PinHash,Salt,UpdatedBy) VALUES(@id,@h,@s,@by)",
-            "@id", id, "@h", HashPin(pin, salt), "@s", salt, "@by", Trunc(staff, 100));
+            "@id", id, "@h", HashPin(pin, salt), "@s", salt, "@by", Trunc(by, 100));
+    }
+
+    static object SetMemberPin(int id, Dictionary<string, object> b)
+    {
+        string pin = Str(b, "pin"), staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM " + Cw + "Customer WHERE Id=@id", "@id", id)) == 0) throw new ApiError(404, "ไม่พบสมาชิก");
+        EndSessions(id); // ตั้ง/ยกเลิก PIN แล้ว ให้ออกจากระบบทุกเครื่อง
+        if (pin.Length == 0)
+        {
+            Exec("DELETE FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id);
+            return new Dictionary<string, object> { { "ok", true } };
+        }
+        ValidateNewPin(pin);
+        StorePin(id, pin, staff);
         return new Dictionary<string, object> { { "ok", true } };
     }
 
-    static object MyHistory(Dictionary<string, string> s, string phone, string pin)
+    // ตรวจเบอร์ + PIN → คืนรหัสลูกค้า (ใส่ผิดนับครั้ง/ล็อกเหมือนเดิม)
+    static int VerifyMemberPin(string phone, string pin)
     {
         string digits = Regex.Replace(phone, "[^0-9]", "");
         if (digits.Length < 9 || pin.Length == 0) throw new ApiError(400, "กรุณาใส่เบอร์โทรและ PIN");
         // ข้อความเดียวกันทุกกรณี — ไม่บอกว่าเบอร์นี้มีในระบบ/มี PIN หรือไม่
         const string wrong = "เบอร์โทรหรือ PIN ไม่ถูกต้อง (ถ้ายังไม่มี PIN ติดต่อพนักงานเพื่อตั้ง PIN)";
         // เบอร์เดียวอาจมีหลายคนในครอบครัว — หาคนที่ PIN ตรง
-        var cands = Query(@"SELECT c.Id, c.FullName, m.PinHash, m.Salt, m.FailCount, m.LockedUntil
+        var cands = Query(@"SELECT c.Id, m.PinHash, m.Salt, m.FailCount, m.LockedUntil
 FROM " + Cw + @"Customer c JOIN dbo.MemberPin m ON m.CustomerId=c.Id
 WHERE ISNULL(c.IsDelete,0)=0 AND REPLACE(REPLACE(c.Phone,'-',''),' ','') = @d", "@d", digits);
         if (cands.Count == 0) throw new ApiError(403, wrong);
-        Dictionary<string, object> who = null;
         lock (WriteLock)
         {
             foreach (var c in cands)
             {
                 if (Convert.ToInt32(c["FailCount"]) >= PinBlockAfter) continue;
                 if (c["LockedUntil"] != null && DateTime.Parse((string)c["LockedUntil"], CultureInfo.InvariantCulture) > DateTime.Now) continue;
-                if (HashPin(pin, (string)c["Salt"]) == (string)c["PinHash"]) { who = c; break; }
+                if (HashPin(pin, (string)c["Salt"]) == (string)c["PinHash"])
+                {
+                    Exec("UPDATE dbo.MemberPin SET FailCount=0, LockedUntil=NULL WHERE CustomerId=@id", "@id", c["Id"]);
+                    return Convert.ToInt32(c["Id"]);
+                }
             }
-            if (who == null)
-            {
-                foreach (var c in cands)
-                    Exec(@"UPDATE dbo.MemberPin SET FailCount=FailCount+1,
+            foreach (var c in cands)
+                Exec(@"UPDATE dbo.MemberPin SET FailCount=FailCount+1,
   LockedUntil = CASE WHEN (FailCount+1) % @lock = 0 THEN DATEADD(minute,30,GETDATE()) ELSE LockedUntil END
 WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
-                int fails = cands.Min(c => Convert.ToInt32(c["FailCount"])) + 1;
-                if (fails >= PinBlockAfter) throw new ApiError(403, "ใส่ PIN ผิดเกินกำหนด — ติดต่อพนักงานเพื่อตั้ง PIN ใหม่");
-                bool locked = cands.All(c => c["LockedUntil"] != null &&
-                    DateTime.Parse((string)c["LockedUntil"], CultureInfo.InvariantCulture) > DateTime.Now) || fails % PinLockAfter == 0;
-                throw new ApiError(403, locked ? "ใส่ PIN ผิดหลายครั้ง กรุณารอ 30 นาที หรือติดต่อพนักงาน" : wrong);
-            }
-            Exec("UPDATE dbo.MemberPin SET FailCount=0, LockedUntil=NULL WHERE CustomerId=@id", "@id", who["Id"]);
+            int fails = cands.Min(c => Convert.ToInt32(c["FailCount"])) + 1;
+            if (fails >= PinBlockAfter) throw new ApiError(403, "ใส่ PIN ผิดเกินกำหนด — ติดต่อพนักงานเพื่อตั้ง PIN ใหม่");
+            bool locked = cands.All(c => c["LockedUntil"] != null &&
+                DateTime.Parse((string)c["LockedUntil"], CultureInfo.InvariantCulture) > DateTime.Now) || fails % PinLockAfter == 0;
+            throw new ApiError(403, locked ? "ใส่ PIN ผิดหลายครั้ง กรุณารอ 30 นาที หรือติดต่อพนักงาน" : wrong);
         }
+    }
 
-        var items = Query(@"
-SELECT TOP 500 o.Id OrderId, o.Order_Code Code, o.Date_Order Date, oi.Product_Id ProductId,
+    // ---------- พื้นที่สมาชิก: เข้าด้วยเบอร์ + PIN แล้วได้ token ใช้ต่อ 15 นาที (นับใหม่ทุกครั้งที่ใช้งาน) ----------
+
+    class MemberSession { public int CustomerId; public DateTime Expires; }
+    static readonly Dictionary<string, MemberSession> Sessions = new Dictionary<string, MemberSession>();
+    static readonly TimeSpan SessionIdle = TimeSpan.FromMinutes(15);
+
+    static string NewToken()
+    {
+        var b = new byte[32];
+        using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(b);
+        return BitConverter.ToString(b).Replace("-", "").ToLowerInvariant();
+    }
+
+    static string BearerToken(HttpListenerContext ctx)
+    {
+        string auth = ctx.Request.Headers["Authorization"] ?? "";
+        return auth.StartsWith("Bearer ") ? auth.Substring(7).Trim() : "";
+    }
+
+    static int SessionCustomer(HttpListenerContext ctx)
+    {
+        string token = BearerToken(ctx);
+        lock (Sessions)
+        {
+            foreach (var k in Sessions.Where(kv => kv.Value.Expires < DateTime.Now).Select(kv => kv.Key).ToList()) Sessions.Remove(k);
+            MemberSession s;
+            if (token.Length == 0 || !Sessions.TryGetValue(token, out s)) throw new ApiError(401, "หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่");
+            s.Expires = DateTime.Now + SessionIdle;
+            return s.CustomerId;
+        }
+    }
+
+    static void EndSessions(int customerId)
+    {
+        lock (Sessions)
+            foreach (var k in Sessions.Where(kv => kv.Value.CustomerId == customerId).Select(kv => kv.Key).ToList()) Sessions.Remove(k);
+    }
+
+    static object MyLogin(Dictionary<string, string> s, Dictionary<string, object> b)
+    {
+        int id = VerifyMemberPin(Str(b, "phone"), Str(b, "pin"));
+        string token = NewToken();
+        lock (Sessions) Sessions[token] = new MemberSession { CustomerId = id, Expires = DateTime.Now + SessionIdle };
+        var res = MyProfile(s, id);
+        res["token"] = token;
+        return res;
+    }
+
+    static Dictionary<string, object> MyProfile(Dictionary<string, string> s, int id)
+    {
+        var m = MemberRows(s, " AND c.Id=@id", "@id", id).FirstOrDefault();
+        if (m == null) throw new ApiError(401, "ไม่พบข้อมูลสมาชิก กรุณาติดต่อพนักงาน");
+        var res = new Dictionary<string, object> { { "name", MaskName((string)m["FullName"]) } };
+        foreach (var k in new[] { "Points", "Earned", "Redeemed", "Adjusted", "Tier", "Benefit", "NextTier", "ToNextTier",
+                                   "NextTierMin", "TierMin", "Spend365", "Visits", "Registered", "Allergy", "Disease" })
+            res[k] = m[k];
+        DateTime bd;
+        res["BirthdayMonth"] = m["BirthDate"] != null && DateTime.TryParse((string)m["BirthDate"], CultureInfo.InvariantCulture, DateTimeStyles.None, out bd)
+            && bd.Year > 1900 && bd.Month == DateTime.Now.Month;
+        res["Contact"] = CustomerValues(id);
+        res["PendingEdits"] = Query("SELECT Field, NewValue, CreatedAt FROM dbo.CustomerEdit WHERE CustomerId=@id AND Status='pending' ORDER BY Id", "@id", id);
+        res["RejectedEdits"] = Query(@"SELECT Field, NewValue, Note, DecidedAt FROM dbo.CustomerEdit
+WHERE CustomerId=@id AND Status='rejected' AND DecidedAt >= DATEADD(day,-14,GETDATE()) ORDER BY Id DESC", "@id", id);
+        res["PointInfo"] = PointRuleText(s);
+        res["PointSource"] = CwPoints(s) ? "cw" : "own";
+        var bills = MemberOrders(s, id, 100);
+        res["Bills"] = bills;
+        res["PointHistory"] = PointHistory(s, id, bills, false);
+        res["Items"] = Query(@"
+SELECT TOP 500 o.Id OrderId, o.Date_Order Date, oi.Product_Id ProductId,
   ISNULL(NULLIF(oi.InvoiceItemName,''), p.Product_Name) Name, oi.Qty, oi.Unit_Name Unit,
   CASE WHEN EXISTS(SELECT 1 FROM " + Cw + "ProductBackItem bi JOIN " + Cw + @"ProductBack pb ON pb.Id=bi.ProductBack_Id
        WHERE bi.OrderItem_Id=oi.Id AND ISNULL(pb.IsCancel,0)=0 AND pb.ProductBack_Status=2) THEN 1 ELSE 0 END Returned,
@@ -1438,15 +1749,45 @@ SELECT TOP 500 o.Id OrderId, o.Order_Code Code, o.Date_Order Date, oi.Product_Id
        WHERE pl.Product_Id=oi.Product_Id AND (LEN(pl.Prod_Using) > 0 OR LEN(pl.Prod_Property) > 0)) THEN 1 ELSE 0 END HasInfo
 FROM " + Cw + "[Order] o JOIN " + Cw + "OrderItem oi ON oi.Order_Id=o.Id LEFT JOIN " + Cw + @"Product p ON p.Id=oi.Product_Id
 WHERE o.Customer_Id=@cid AND ISNULL(o.IsOrderCancel,0)=0 AND o.Order_Status=2 AND ISNULL(o.IsDelete,0)=0
-ORDER BY o.Date_Order DESC, oi.Id", "@cid", who["Id"]);
-        var res = new Dictionary<string, object> { { "name", MaskName((string)who["FullName"]) }, { "items", items } };
-        // แต้มสะสม (บนเว็บเช็คแต้มต้องผ่าน PIN เหมือนกัน)
-        var m = MemberRows(s, " AND c.Id=@id", "@id", who["Id"]).FirstOrDefault();
-        if (m != null)
-        {
-            foreach (var k in new[] { "Points", "Tier", "Benefit", "NextTier", "ToNextTier" }) res[k] = m[k];
-            res["Rewards"] = Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points");
-        }
+ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
+        // ของรางวัลในระบบสมาชิกใช้เฉพาะแบบคิดแต้มเอง — แบบ CW ใช้แต้มแทนเงินสดที่หน้าขาย (ไม่ส่งหมายเหตุ เป็นโน้ตพนักงาน)
+        res["Rewards"] = CwPoints(s) ? new List<Dictionary<string, object>>()
+            : Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points");
         return res;
+    }
+
+    // คำอธิบายวิธีได้แต้ม สำหรับแสดงให้ลูกค้า
+    static string PointRuleText(Dictionary<string, string> s)
+    {
+        if (!CwPoints(s))
+            return "ซื้อครบทุก " + Num(s, "BahtPerPoint").ToString("#,0.##") + " บาท = 1 แต้ม";
+        var c = CwPointConfig();
+        if (!(c["ok"] is bool && (bool)c["ok"]) || !(bool)c["Active"] || !(bool)c["RecActive"]) return "สะสมแต้มทุกการซื้อที่ร้าน";
+        double price = Convert.ToDouble(c["RecPrice"]), pts = Convert.ToDouble(c["RecPoint"]);
+        return price > 0 && pts > 0 ? "ซื้อทุก " + price.ToString("#,0.##") + " บาท ได้ " + pts.ToString("#,0.##") + " แต้ม" : "สะสมแต้มทุกการซื้อที่ร้าน";
+    }
+
+    static object MyChangePin(HttpListenerContext ctx, Dictionary<string, object> b)
+    {
+        int id = SessionCustomer(ctx);
+        string current = Str(b, "current"), fresh = Str(b, "pin");
+        var row = Query("SELECT PinHash, Salt FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault();
+        if (row == null || HashPin(current, (string)row["Salt"]) != (string)row["PinHash"])
+            throw new ApiError(403, "PIN ปัจจุบันไม่ถูกต้อง");
+        ValidateNewPin(fresh);
+        if (fresh == current) throw new ApiError(400, "PIN ใหม่ต้องไม่ซ้ำกับ PIN เดิม");
+        StorePin(id, fresh, "ลูกค้าเปลี่ยนเอง");
+        // ออกจากระบบเครื่องอื่นที่อาจค้างอยู่ คงไว้แค่เครื่องนี้
+        string mine = BearerToken(ctx);
+        lock (Sessions)
+            foreach (var k in Sessions.Where(kv => kv.Value.CustomerId == id && kv.Key != mine).Select(kv => kv.Key).ToList()) Sessions.Remove(k);
+        Log("สมาชิก #" + id + " เปลี่ยน PIN เอง");
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    static object MyLogout(HttpListenerContext ctx)
+    {
+        lock (Sessions) Sessions.Remove(BearerToken(ctx));
+        return new Dictionary<string, object> { { "ok", true } };
     }
 }

@@ -58,6 +58,7 @@ tr.cancelled td { color: #aab; text-decoration: line-through; }
 .t-gold { background: var(--gold); } .t-platinum { background: var(--platinum); }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px; background: var(--brand-2); color: var(--brand); }
 .pill.red { background: var(--danger-bg); color: var(--danger); }
+.pill.gray { background: var(--line, #eee); color: var(--muted, #666); }
 
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .toolbar input, .toolbar select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }

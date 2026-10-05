@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>บริการลูกค้า</title>
+<title>สมาชิก</title>
 <style>
   :root { --brand: #0f7a5f; --brand-2: #e6f4ef; --ink: #1d2b28; --muted: #6b7c78; --line: #e2e9e7;
-    --danger: #c0392b; --danger-bg: #fdecea; --warn-bg: #fff6e0;
+    --danger: #c0392b; --danger-bg: #fdecea; --warn: #8a5a00; --warn-bg: #fff6e0;
     --member: #7a8a86; --silver: #8d99ae; --gold: #c9971c; --platinum: #4b3f8f; }
   * { box-sizing: border-box; }
   html { background: #0b5a47; }
@@ -14,66 +14,84 @@
     font: 17px/1.55 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; padding: 16px; overflow-x: hidden; }
   .box { background: #fff; border-radius: 20px; width: min(620px, 100%); margin: 0 auto; padding: 22px 22px 26px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
   h1 { font-size: 22px; margin: 0; color: var(--brand); text-align: center; }
-  h2 { font-size: 19px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 0; }
+  h3 { font-size: 15px; margin: 0 0 6px; }
   .muted { color: var(--muted); font-size: 14px; }
+  .small { font-size: 14px; }
   .center { text-align: center; }
-  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 14px 0 18px; background: #eef4f2; padding: 4px; border-radius: 12px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 14px 0 18px; background: #eef4f2; padding: 4px; border-radius: 12px; }
+  [hidden] { display: none !important; }
   .tabs button { font: inherit; font-size: 15px; border: 0; background: none; padding: 10px 4px; border-radius: 9px; cursor: pointer; color: var(--muted); }
   .tabs button.on { background: #fff; color: var(--brand); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  .sub-h { margin: 6px 0 16px; }
   input { width: 100%; font: inherit; font-size: 24px; letter-spacing: 1px; text-align: center; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; }
   input:focus { outline: none; border-color: var(--brand); }
-  input.search { text-align: left; font-size: 19px; letter-spacing: 0; }
   label.lb { display: block; font-size: 14px; color: var(--muted); margin-top: 8px; }
   .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
   .pad button { font: inherit; font-size: 24px; padding: 11px; border: 0; border-radius: 12px; background: #eef4f2; cursor: pointer; }
   .pad button:active { background: #d6e9e2; }
   .go { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 19px; border: 0; border-radius: 12px; background: var(--brand); color: #fff; cursor: pointer; }
+  .go:disabled { opacity: .6; }
   .go.light { background: #eef4f2; color: var(--ink); }
+  .link { font: inherit; font-size: 14px; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 6px 0; text-decoration: underline; }
   .pts { font-size: 64px; font-weight: 800; color: var(--brand); line-height: 1; margin: 10px 0 4px; }
   .badge { display: inline-block; padding: 2px 14px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 15px; }
   .t-member { background: var(--member); } .t-silver { background: var(--silver); } .t-gold { background: var(--gold); } .t-platinum { background: var(--platinum); }
-  .rw { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .rw { display: flex; justify-content: space-between; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); font-size: 15px; }
   .rw.ok b { color: var(--brand); }
   .err { color: var(--danger); margin-top: 10px; min-height: 1.5em; text-align: center; }
-  .list { margin-top: 10px; }
+  .okmsg { color: var(--brand); margin-top: 10px; text-align: center; }
+  .row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .chip { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; white-space: nowrap; }
+  .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .chips { display: flex; gap: 6px; margin: 18px 0 4px; overflow-x: auto; padding-bottom: 4px; }
+  .card { margin-top: 12px; padding: 14px 16px; border-radius: 14px; background: var(--brand-2); }
+  .ptcard { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .ptnum { font-size: 42px; font-weight: 800; color: var(--brand); line-height: 1; }
+  .bar { height: 8px; border-radius: 99px; background: #fff; overflow: hidden; margin: 8px 0 4px; }
+  .bar > div { height: 100%; background: var(--brand); }
+  .bday { margin-top: 12px; padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); }
+  .health { margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); }
+  .allergy { color: var(--danger); font-weight: 600; }
+  .disease { color: var(--warn); }
   .item { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 11px 4px; cursor: pointer; }
   .item:hover { background: var(--brand-2); }
-  .item .nm { font-weight: 600; }
-  .item .sub { font-size: 14px; color: var(--muted); }
   .item[disabled] { cursor: default; }
   .item[disabled]:hover { background: none; }
-  .bill { margin-top: 14px; }
-  .bill-h { font-size: 14px; color: var(--muted); background: #f5f8f7; padding: 6px 10px; border-radius: 8px; }
-  .chips { display: flex; gap: 6px; margin: 10px 0 2px; }
-  .chip { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
-  .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .nm { font-weight: 600; }
+  .sub { font-size: 14px; color: var(--muted); }
+  .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); margin-left: 6px; }
+  .plus { color: var(--brand); font-weight: 700; }
+  .minus { color: var(--danger); font-weight: 700; }
+  .bill-lines { padding: 4px 4px 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .bill-lines div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  .stat { background: #f5f8f7; border-radius: 10px; padding: 8px 12px; }
+  .stat b { display: block; font-size: 20px; }
   .sec { margin-top: 14px; }
-  .sec h3 { font-size: 15px; margin: 0 0 4px; color: var(--brand); }
+  .sec h3 { color: var(--brand); }
   .sec .txt { white-space: pre-line; background: #f7faf9; border-radius: 10px; padding: 10px 12px; }
   .sec.warn h3 { color: var(--danger); }
   .sec.warn .txt { background: var(--danger-bg); }
-  .note { margin-top: 16px; font-size: 13px; color: #8a5a00; background: var(--warn-bg); padding: 8px 12px; border-radius: 10px; }
+  .note { margin-top: 16px; font-size: 13px; color: var(--warn); background: var(--warn-bg); padding: 8px 12px; border-radius: 10px; }
   .back { font: inherit; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; margin-bottom: 8px; }
-  .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); margin-left: 6px; }
-  .row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .ptcard { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; padding: 14px 16px; border-radius: 14px; background: var(--brand-2); }
-  .ptcard .sub { font-size: 14px; color: var(--muted); margin-top: 4px; }
-  .ptnum { font-size: 40px; font-weight: 800; color: var(--brand); line-height: 1; }
-  .rewards { margin-top: 8px; font-size: 15px; }
-  .rewards summary { cursor: pointer; color: var(--brand); padding: 6px 0; }
-  .rewards .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .hh { font-size: 16px; margin: 18px 0 0; }
-  @media (max-width: 480px) { body { padding: 10px; } .box { padding: 18px 14px 22px; border-radius: 16px; } }
+  .ef input, .ef textarea { font-size: 17px; letter-spacing: 0; text-align: left; }
+  .ef textarea { width: 100%; font: inherit; font-size: 17px; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; resize: vertical; }
+  .ef textarea:focus { outline: none; border-color: var(--brand); }
+  .pend { font-size: 13px; color: var(--warn); }
+  .empty { padding: 20px; text-align: center; color: var(--muted); font-size: 15px; }
+  @media (max-width: 480px) { body { padding: 10px; } .box { padding: 18px 14px 22px; border-radius: 16px; } .pts { font-size: 54px; } }
 </style>
 </head>
 <body>
 <div class="box">
   <h1 id="shop">ร้านยามุมยาเภสัช</h1>
-  <div class="tabs">
+  <div class="tabs" id="tabs" hidden>
     <button data-tab="points">เช็คแต้ม</button>
-    <button data-tab="history">ประวัติยาของฉัน</button>
-    <button data-tab="drugs">ค้นหาวิธีใช้ยา</button>
+    <button data-tab="member">สมาชิก</button>
   </div>
+  <div class="muted center sub-h" id="subtitle" hidden>พื้นที่สมาชิก</div>
   <div id="view"></div>
 </div>
 <script>
@@ -81,34 +99,43 @@ const TIER = { member: 'สมาชิก', silver: 'ซิลเวอร์',
 const view = document.getElementById('view');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const n = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
-const dateTh = s => s ? new Date(s.replace(' ', 'T')).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
+const baht = v => '฿' + Number(v || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const toDate = s => s ? new Date(s.replace(' ', 'T')) : null;
+const dateTh = s => { const d = toDate(s); return d && d.getFullYear() > 1900 ? d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-'; };
 // ข้อความในฉลากยาบางตัวมีเครื่องหมาย markdown (** #) — ตัดออกให้อ่านง่าย
 const clean = s => String(s ?? '').replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
-let idleTimer, current = '';
+
+// PUBLIC = เปิดผ่านเว็บไซต์ (มือถือลูกค้า) / ไม่ใช่ = แท็บเล็ตหน้าร้าน
+let PUBLIC = false, current = '', token = null, me = null, meTab = 'drugs';
 
 async function api(path, body) {
-  const res = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
-  const d = await res.json().catch(() => ({ error: 'เชื่อมต่อไม่ได้' }));
+  const headers = {};
+  if (token) headers.Authorization = 'Bearer ' + token;
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch('/api/' + path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
+  const d = await res.json().catch(() => ({ error: 'เชื่อมต่อไม่ได้ กรุณาลองใหม่' }));
+  if (res.status === 401 && token) { token = me = null; memberLogin(d.error); throw new Error(d.error); }
   if (!res.ok) throw new Error(d.error || 'เกิดข้อผิดพลาด');
   return d;
 }
 
-// ข้อมูลส่วนตัวบนจอ (แต้ม/ประวัติยา) ล้างเองเมื่อไม่มีการใช้งาน
-function armIdle(ms, fn) { clearTimeout(idleTimer); idleTimer = setTimeout(fn, ms); }
-['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { if (idleTimer && current !== 'drugs') armIdle(idleMs, idleFn); }, true));
-let idleMs = 0, idleFn = null;
-function privateScreen(ms, fn) { idleMs = ms; idleFn = fn; armIdle(ms, fn); }
-function publicScreen() { clearTimeout(idleTimer); idleTimer = null; }
+// ข้อมูลส่วนตัวบนจอ ล้างเองเมื่อไม่มีการใช้งาน (หน้าร้าน 90 วินาที / มือถือ 15 นาที เท่ากับฝั่งเซิร์ฟเวอร์)
+let idleTimer = null, idleFn = null;
+const idleMs = () => PUBLIC ? 15 * 60000 : 90000;
+function privateScreen(fn) { idleFn = fn; clearTimeout(idleTimer); idleTimer = setTimeout(fn, idleMs()); }
+function publicScreen() { clearTimeout(idleTimer); idleTimer = idleFn = null; }
+['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { if (idleFn) { clearTimeout(idleTimer); idleTimer = setTimeout(idleFn, idleMs()); } }, true));
 
 function show(tab) {
   current = tab;
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
   publicScreen();
-  ({ points: pointsForm, history: historyForm, drugs: drugSearch })[tab]();
+  if (tab === 'points') pointsForm(); else if (me) renderMe(); else memberLogin();
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => show(b.dataset.tab));
 
+// ---------- ปุ่มตัวเลขบนจอ (เฉพาะแท็บเล็ตหน้าร้าน) ----------
+const padHtml = () => PUBLIC ? '' : `<div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 'ลบ', 0, 'ล้าง'].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`;
 function keypad(fields) {
   let target = fields[0];
   fields.forEach(f => ['focus', 'pointerdown', 'click'].forEach(ev => f.addEventListener(ev, () => target = f)));
@@ -117,15 +144,13 @@ function keypad(fields) {
     b.onclick = () => {
       const k = b.dataset.k, max = +target.maxLength || 10;
       target.value = k === 'ลบ' ? target.value.slice(0, -1) : k === 'ล้าง' ? '' : (target.value + k).slice(0, max);
-      if (target === fields[0] && fields[1] && target.value.length >= 10) { target = fields[1]; fields[1].focus(); }
+      const i = fields.indexOf(target);
+      if (fields[i + 1] && target.value.length >= max) { target = fields[i + 1]; target.focus(); }
     };
   });
 }
-// PUBLIC = เปิดผ่านเว็บไซต์ (มือถือลูกค้า): ไม่มีปุ่มตัวเลขบนจอ, เช็คแต้มต้องใช้ PIN
-let PUBLIC = false;
-const padHtml = () => PUBLIC ? '' : `<div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 'ลบ', 0, 'ล้าง'].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`;
 
-// ---------- เช็คแต้ม ----------
+// ---------- เช็คแต้มด้วยเบอร์ (เฉพาะแท็บเล็ตหน้าร้าน) ----------
 function pointsForm(msg = '') {
   view.innerHTML = `<div class="muted center">ใส่เบอร์โทรศัพท์เพื่อดูแต้มสะสม</div>
     <input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
@@ -141,136 +166,208 @@ async function checkPoints(phone) {
   let d;
   try { d = await api('check?phone=' + encodeURIComponent(phone)); } catch (e) { return pointsForm(e.message); }
   view.innerHTML = `<div class="center"><div class="muted">สวัสดีคุณ</div><h2>${esc(d.name)}</h2>
-    <div><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
+    <div style="margin-top:6px"><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
     <div class="pts">${n(d.points)}</div><div class="muted">แต้มสะสม</div>
-    ${d.benefit ? `<p>สิทธิพิเศษ: ${esc(d.benefit)}</p>` : ''}
-    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ฿${n(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}</div>
-    <div style="margin-top:14px">${d.rewards.map(r => `<div class="rw ${d.points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}</span><b>${n(r.Points)} แต้ม</b></div>`).join('')}</div>
-    <p class="muted center">แจ้งพนักงานเพื่อแลกของรางวัล</p><button class="go" id="done">เสร็จสิ้น</button>`;
+    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ${baht(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}</div>
+    <p class="muted center">ดูประวัติยาและแต้มแบบละเอียด ที่แท็บ "สมาชิก"</p><button class="go" id="done">เสร็จสิ้น</button>`;
   view.querySelector('#done').onclick = () => pointsForm();
-  privateScreen(20000, () => pointsForm());
+  privateScreen(() => pointsForm());
 }
 
-// ---------- ประวัติการจ่ายยา (ต้องใช้ PIN) ----------
-function historyForm(msg = '') {
-  view.innerHTML = `<div class="muted center">ดู${PUBLIC ? 'แต้มสะสมและ' : ''}ประวัติการรับยาของคุณ — ใช้เบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่ร้าน)</div>
+// ---------- เข้าสู่ระบบสมาชิก ----------
+function memberLogin(msg = '') {
+  me = null;
+  view.innerHTML = `<div class="muted center">เข้าสู่ระบบด้วยเบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่ร้าน)</div>
     <label class="lb">เบอร์โทรศัพท์</label><input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
     <label class="lb">PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
-    ${padHtml()}<button class="go" id="go">${PUBLIC ? 'เข้าสู่ระบบ' : 'ดูประวัติยา'}</button><div class="err">${esc(msg)}</div>`;
-  const ph = view.querySelector('#ph'), pin = view.querySelector('#pin');
+    ${padHtml()}<button class="go" id="go">เข้าสู่ระบบ</button><div class="err">${esc(msg)}</div>`;
+  const ph = view.querySelector('#ph'), pin = view.querySelector('#pin'), btn = view.querySelector('#go');
   keypad([ph, pin]); if (!PUBLIC) ph.focus();
-  const go = () => loadHistory(ph.value, pin.value);
-  pin.onkeydown = ph.onkeydown = e => { if (e.key === 'Enter') go(); };
-  view.querySelector('#go').onclick = go;
-}
-
-let hist = null, histMode = 'drugs';
-async function loadHistory(phone, pin) {
-  try { hist = await api('my/history', { phone, pin }); } catch (e) { return historyForm(e.message); }
-  histMode = 'drugs';
-  renderHistory();
-}
-
-const idleSec = () => PUBLIC ? 300 : 90;
-function renderHistory() {
-  privateScreen(idleSec() * 1000, logout);
-  const items = hist.items;
-  let body;
-  if (!items.length) body = '<p class="muted center">ยังไม่มีประวัติการรับยา</p>';
-  else if (histMode === 'drugs') {
-    // รวมเป็นรายการยา (ล่าสุดก่อน)
-    const map = new Map();
-    items.forEach(i => {
-      const k = i.ProductId || i.Name;
-      if (!map.has(k)) map.set(k, { ...i, times: 0 });
-      if (!i.Returned) map.get(k).times++;
-    });
-    body = [...map.values()].map(d => `<button class="item" ${d.ProductId ? `data-drug="${d.ProductId}"` : 'disabled'}>
-      <div class="nm">${esc(d.Name)}</div>
-      <div class="sub">ล่าสุด ${dateTh(d.Date)} · ${n(d.Qty)} ${esc(d.Unit || '')}${d.times > 1 ? ` · รับ ${d.times} ครั้ง` : ''}${d.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('');
-  } else {
-    const bills = [];
-    items.forEach(i => { let b = bills[bills.length - 1]; if (!b || b.id !== i.OrderId) bills.push(b = { id: i.OrderId, code: i.Code, date: i.Date, lines: [] }); b.lines.push(i); });
-    body = bills.map(b => `<div class="bill"><div class="bill-h">${dateTh(b.date)} · ${esc(b.code)}</div>
-      ${b.lines.map(i => `<button class="item" ${i.ProductId ? `data-drug="${i.ProductId}"` : 'disabled'}>
-        <div class="nm">${esc(i.Name)}${i.Returned ? '<span class="tag">คืนแล้ว</span>' : ''}</div>
-        <div class="sub">${n(i.Qty)} ${esc(i.Unit || '')}${i.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('')}</div>`).join('');
-  }
-  const pts = hist.Points == null ? '' : `<div class="ptcard">
-      <div><span class="badge t-${hist.Tier}">${TIER[hist.Tier]}</span>${hist.Benefit ? `<div class="sub">${esc(hist.Benefit)}</div>` : ''}
-        ${hist.NextTier ? `<div class="sub">ซื้อเพิ่มอีก ฿${n(hist.ToNextTier)} ภายใน 12 เดือน เป็นระดับ ${TIER[hist.NextTier]}</div>` : ''}</div>
-      <div class="center"><div class="ptnum">${n(hist.Points)}</div><div class="sub">แต้มสะสม</div></div></div>
-    ${(hist.Rewards || []).length ? `<details class="rewards"><summary>ของรางวัลที่แลกได้</summary>${hist.Rewards.map(r =>
-      `<div class="rw ${hist.Points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}</span><b>${n(r.Points)} แต้ม</b></div>`).join('')}
-      <div class="sub">แลกได้ที่ร้าน แจ้งพนักงาน</div></details>` : ''}`;
-  view.innerHTML = `<div class="row-top"><div><div class="muted">สวัสดี</div><h2>คุณ${esc(hist.name)}</h2></div>
-      <button class="chip" id="out">ออก</button></div>
-    ${pts}
-    <h3 class="hh">ประวัติการรับยา</h3>
-    <div class="chips"><button class="chip ${histMode === 'drugs' ? 'on' : ''}" data-mode="drugs">ยาของฉัน</button>
-      <button class="chip ${histMode === 'bills' ? 'on' : ''}" data-mode="bills">ตามวันที่ซื้อ</button></div>
-    <div class="list">${body}</div>
-    <div class="note">${PUBLIC ? 'ข้อมูลเป็นความลับส่วนตัว — กด "ออก" เมื่อใช้เสร็จ ' : ''}หน้านี้จะออกจากระบบเองเมื่อไม่มีการใช้งาน ${idleSec() >= 120 ? idleSec() / 60 + ' นาที' : idleSec() + ' วินาที'}</div>`;
-  view.querySelector('#out').onclick = logout;
-  view.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { histMode = b.dataset.mode; renderHistory(); });
-  view.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug, renderHistory));
-}
-
-function logout() { hist = null; if (current === 'history') historyForm(); }
-
-// ---------- ค้นหาวิธีใช้ยา (ทุกคนใช้ได้) ----------
-let lastQ = '';
-function drugSearch() {
-  view.innerHTML = `<div class="muted center">พิมพ์ชื่อยา ชื่อการค้า หรือชื่อสามัญ (ไทย/อังกฤษ)</div>
-    <input id="q" class="search" placeholder="เช่น พาราเซตามอล, Paracetamol, ยาเขียว" autocomplete="off" value="${esc(lastQ)}">
-    <div class="list" id="res"></div>`;
-  const q = view.querySelector('#q'), res = view.querySelector('#res');
-  let t, seq = 0;
-  const run = async () => {
-    lastQ = q.value.trim();
-    if (lastQ.length < 2) { res.innerHTML = '<p class="muted center">พิมพ์อย่างน้อย 2 ตัวอักษร</p>'; return; }
-    const my = ++seq;
-    let rows;
-    try { rows = await api('drugs?q=' + encodeURIComponent(lastQ)); } catch (e) { res.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
-    if (my !== seq) return;
-    res.innerHTML = rows.length ? rows.map(r => `<button class="item" data-drug="${r.Id}">
-      <div class="nm">${esc(r.Name)}</div>
-      ${r.Generic ? `<div class="sub">ตัวยา: ${esc(r.Generic)}</div>` : ''}${r.ByUse ? `<div class="sub">พบคำว่า "${esc(lastQ)}" ในสรรพคุณ/วิธีใช้</div>` : ''}
-      <div class="sub">${esc(clean(r.Snippet))}</div></button>`).join('')
-      : '<p class="muted center">ไม่พบยาที่มีข้อมูลวิธีใช้ — สอบถามเภสัชกรได้ที่เคาน์เตอร์</p>';
-    res.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug, drugSearch));
+  const go = async () => {
+    btn.disabled = true;
+    try {
+      const d = await api('my/login', { phone: ph.value, pin: pin.value });
+      token = d.token; me = d; meTab = 'drugs';
+      renderMe();
+    } catch (e) { memberLogin(e.message); }
   };
-  q.oninput = () => { clearTimeout(t); t = setTimeout(run, 300); };
-  q.focus();
-  if (lastQ) run(); else res.innerHTML = '<p class="muted center">ผลการค้นหาจะแสดงที่นี่</p>';
+  pin.onkeydown = ph.onkeydown = e => { if (e.key === 'Enter') go(); };
+  btn.onclick = go;
 }
 
-async function drugDetail(id, back) {
+async function logout() {
+  try { if (token) await api('my/logout', {}); } catch {}
+  token = me = null;
+  publicScreen();
+  if (current === 'member') memberLogin();
+}
+
+// ---------- หน้าสมาชิก ----------
+function renderMe() {
+  privateScreen(logout);
+  const m = me;
+  const pct = m.NextTier ? Math.max(0, Math.min(100, (m.Spend365 - m.TierMin) / (m.NextTierMin - m.TierMin) * 100)) : 100;
+  const tabs = [['drugs', 'ยาของฉัน'], ['bills', 'ประวัติการซื้อ'], ['points', 'แต้ม'], ['rewards', m.PointSource === 'cw' ? 'ใช้แต้ม' : 'ของรางวัล']];
+  view.innerHTML = `
+    <div class="row-top"><div><div class="muted">สวัสดี</div><h2>คุณ${esc(m.name)}</h2></div>
+      <button class="chip" id="out">ออกจากระบบ</button></div>
+    ${m.BirthdayMonth ? '<div class="bday">🎂 สุขสันต์เดือนเกิด! แสดงหน้านี้ที่ร้านเพื่อรับสิทธิพิเศษวันเกิด</div>' : ''}
+    <div class="card"><div class="ptcard">
+      <div><span class="badge t-${m.Tier}">${TIER[m.Tier]}</span>${m.Benefit ? `<div class="sub" style="margin-top:6px">${esc(m.Benefit)}</div>` : ''}</div>
+      <div class="center"><div class="ptnum num">${n(m.Points)}</div><div class="sub">แต้มสะสม</div></div></div>
+      ${m.NextTier ? `<div class="bar"><div style="width:${pct}%"></div></div>
+        <div class="sub">ซื้ออีก ${baht(m.ToNextTier)} ภายใน 12 เดือน เป็นระดับ ${TIER[m.NextTier]}</div>`
+        : '<div class="sub" style="margin-top:8px">คุณอยู่ระดับสูงสุดแล้ว ขอบคุณที่ไว้วางใจ</div>'}
+    </div>
+    <div class="health"><h3>ข้อมูลสุขภาพที่ร้านบันทึกไว้</h3>
+      ${m.Allergy ? `<div class="allergy">⚠ แพ้ยา: ${esc(m.Allergy)}</div>` : '<div class="sub">ไม่มีข้อมูลการแพ้ยา</div>'}
+      ${m.Disease ? `<div class="disease">โรคประจำตัว: ${esc(m.Disease)}</div>` : ''}
+      ${(m.PendingEdits || []).length ? `<div class="pend" style="margin-top:6px">⏳ ส่งคำขอแก้ไข ${m.PendingEdits.length} รายการ รอเภสัชกรตรวจสอบ</div>` : ''}
+      <div class="sub" style="margin-top:4px">ข้อมูลไม่ถูกต้อง หรือแพ้ยาแต่ยังไม่มีในระบบ? <button class="link" id="edit">แก้ไขข้อมูลของฉัน</button></div></div>
+    <div class="chips">${tabs.map(([k, t]) => `<button class="chip ${meTab === k ? 'on' : ''}" data-me="${k}">${t}</button>`).join('')}</div>
+    <div id="meBody">${({ drugs: myDrugs, bills: myBills, points: myPoints, rewards: myRewards })[meTab]()}</div>
+    <div style="text-align:center;margin-top:16px"><button class="link" id="chpin">เปลี่ยน PIN</button></div>
+    <div class="note">ข้อมูลเป็นความลับส่วนตัว — กด "ออกจากระบบ" เมื่อใช้เสร็จ (ออกเองเมื่อไม่ได้ใช้งาน ${PUBLIC ? '15 นาที' : '90 วินาที'})</div>`;
+  view.querySelector('#out').onclick = logout;
+  view.querySelector('#chpin').onclick = changePinForm;
+  view.querySelector('#edit').onclick = () => editForm();
+  view.querySelectorAll('[data-me]').forEach(b => b.onclick = () => { meTab = b.dataset.me; renderMe(); });
+  view.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug));
+  view.querySelectorAll('[data-bill]').forEach(b => b.onclick = () => toggleBill(b));
+}
+
+function myDrugs() {
+  if (!me.Items.length) return '<div class="empty">ยังไม่มีประวัติการรับยา</div>';
+  const map = new Map();
+  me.Items.forEach(i => {
+    const k = i.ProductId || i.Name;
+    if (!map.has(k)) map.set(k, { ...i, times: 0 });
+    if (!i.Returned) map.get(k).times++;
+  });
+  return [...map.values()].map(d => `<button class="item" ${d.ProductId && d.HasInfo ? `data-drug="${d.ProductId}"` : 'disabled'}>
+    <div class="nm">${esc(d.Name)}</div>
+    <div class="sub">ล่าสุด ${dateTh(d.Date)} · ${n(d.Qty)} ${esc(d.Unit || '')}${d.times > 1 ? ` · รับ ${d.times} ครั้ง` : ''}${d.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('');
+}
+
+function myBills() {
+  if (!me.Bills.length) return '<div class="empty">ยังไม่มีประวัติการซื้อ</div>';
+  return me.Bills.map(b => `<button class="item" data-bill="${b.Id}">
+    <div class="row-top"><span class="nm">${dateTh(b.Date)}</span><span class="nm num">${baht(b.Net)}</span></div>
+    <div class="sub">${esc(b.Code)}${b.Returned ? ` · คืนสินค้า ${baht(b.Returned)}` : ''}${b.Points ? ` · <span class="plus">+${n(b.Points)} แต้ม</span>` : ''}${b.PayPoints ? ` · <span class="minus">ใช้ ${n(b.PayPoints)} แต้ม</span>` : ''} · แตะดูรายการ</div></button>`).join('');
+}
+
+function toggleBill(btn) {
+  const next = btn.nextElementSibling;
+  if (next && next.classList.contains('bill-lines')) { next.remove(); return; }
+  const id = +btn.dataset.bill;
+  const lines = me.Items.filter(i => i.OrderId === id);
+  const div = document.createElement('div');
+  div.className = 'bill-lines';
+  div.innerHTML = lines.length ? lines.map(i => `<div><span>${esc(i.Name)}${i.Returned ? '<span class="tag">คืนแล้ว</span>' : ''}</span>
+    <span class="num" style="white-space:nowrap">${n(i.Qty)} ${esc(i.Unit || '')}</span></div>`).join('') : '<div class="sub">ไม่มีรายการ</div>';
+  btn.after(div);
+}
+
+function myPoints() {
+  // ประวัติแต้มรวมจากฝั่งเซิร์ฟเวอร์ (ได้จากบิล / ใช้เป็นส่วนลด / แลก-ปรับ) เรียงล่าสุดก่อน
+  const rows = me.PointHistory || [];
+  const cw = me.PointSource === 'cw';
+  return `<div class="stats">
+      <div class="stat"><span class="sub">ได้จากการซื้อ</span><b class="num plus">+${n(me.Earned)}</b></div>
+      <div class="stat"><span class="sub">${cw ? 'ใช้เป็นส่วนลด' : 'แลกไปแล้ว'}</span><b class="num minus">-${n(me.Redeemed)}</b></div>
+      ${me.Adjusted ? `<div class="stat"><span class="sub">ปรับแต้ม</span><b class="num">${me.Adjusted > 0 ? '+' : ''}${n(me.Adjusted)}</b></div>` : ''}
+      <div class="stat"><span class="sub">คงเหลือ</span><b class="num">${n(me.Points)}</b></div></div>
+    <div class="sub" style="margin:10px 0 4px">${esc(me.PointInfo || '')}</div>
+    ${rows.length ? rows.map(r => `<div class="rw"><span><span class="sub">${dateTh(r.Date)}</span><br>${esc(r.Text)}</span>
+      <b class="num ${r.Points > 0 ? 'plus' : 'minus'}" style="white-space:nowrap">${r.Points > 0 ? '+' : ''}${n(r.Points)}</b></div>`).join('')
+      : '<div class="empty">ยังไม่มีความเคลื่อนไหวของแต้ม</div>'}`;
+}
+
+function myRewards() {
+  if (me.PointSource === 'cw')
+    return `<div class="card"><h3>ใช้แต้มแทนเงินสด</h3>
+      <div>คุณมี <b class="num">${n(me.Points)}</b> แต้ม</div>
+      <div class="sub" style="margin-top:6px">ใช้แต้มเป็นส่วนลดได้ตอนชำระเงินที่ร้าน — แจ้งพนักงานว่าต้องการใช้แต้มก่อนชำระเงิน</div></div>`;
+  if (!me.Rewards.length) return '<div class="empty">ยังไม่มีของรางวัล</div>';
+  return me.Rewards.map(r => `<div class="rw ${me.Points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}
+      ${r.Note ? `<br><span class="sub">${esc(r.Note)}</span>` : ''}</span>
+    <span style="text-align:right;white-space:nowrap"><b>${n(r.Points)} แต้ม</b><br>
+      <span class="sub">${me.Points >= r.Points ? '✓ แลกได้' : 'อีก ' + n(r.Points - me.Points) + ' แต้ม'}</span></span></div>`).join('')
+    + '<div class="sub" style="margin-top:8px">แลกของรางวัลได้ที่ร้าน แจ้งพนักงานพร้อมเบอร์โทร</div>';
+}
+
+async function drugDetail(id) {
   let d;
-  try { d = await api('drugs/' + id); } catch (e) { view.innerHTML = `<button class="back" id="bk">← กลับ</button><div class="err">${esc(e.message)}</div>`; view.querySelector('#bk').onclick = () => back(); return; }
+  try { d = await api('my/drug/' + id); } catch (e) { if (token) alert(e.message); return; }
   const sec = (title, text, cls = '') => text ? `<div class="sec ${cls}"><h3>${title}</h3><div class="txt">${esc(clean(text))}</div></div>` : '';
   view.innerHTML = `<button class="back" id="bk">← กลับ</button>
     <h2>${esc(d.Name)}</h2>${d.Generic ? `<div class="muted">ตัวยา: ${esc(d.Generic)}</div>` : ''}
     ${sec('สรรพคุณ', d.Property)}${sec('วิธีใช้', d.Using)}${sec('ข้อควรระวัง / คำเตือน', d.Warning, 'warn')}
-    ${!d.Property && !d.Using && !d.Warning ? '<p class="muted">ยังไม่มีข้อมูลวิธีใช้ของยานี้ — สอบถามเภสัชกรได้ที่เคาน์เตอร์</p>' : ''}
-    <div class="note">ข้อมูลนี้เป็นคำแนะนำทั่วไป ให้ใช้ยาตามที่เภสัชกรหรือแพทย์แนะนำและตามฉลากที่ได้รับ หากมีโรคประจำตัว ตั้งครรภ์ หรือแพ้ยา ปรึกษาเภสัชกรก่อนใช้</div>`;
-  view.querySelector('#bk').onclick = () => back();
+    ${!d.Property && !d.Using && !d.Warning ? '<p class="muted">ยังไม่มีข้อมูลวิธีใช้ของยานี้ — สอบถามเภสัชกรได้ที่ร้าน</p>' : ''}
+    <div class="note">ให้ใช้ยาตามที่เภสัชกรหรือแพทย์แนะนำและตามฉลากที่ได้รับ หากมีโรคประจำตัว ตั้งครรภ์ หรือแพ้ยา ปรึกษาเภสัชกรก่อนใช้</div>`;
+  view.querySelector('#bk').onclick = renderMe;
   window.scrollTo(0, 0);
 }
 
+function changePinForm(msg = '', ok = false) {
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2>เปลี่ยน PIN</h2>
+    <label class="lb">PIN ปัจจุบัน</label><input id="cur" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <label class="lb">PIN ใหม่ (ตัวเลข 4-6 หลัก)</label><input id="np" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <label class="lb">ยืนยัน PIN ใหม่</label><input id="np2" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    ${padHtml()}<button class="go" id="go">บันทึก PIN ใหม่</button><div class="${ok ? 'okmsg' : 'err'}">${esc(msg)}</div>`;
+  const cur = view.querySelector('#cur'), np = view.querySelector('#np'), np2 = view.querySelector('#np2');
+  keypad([cur, np, np2]);
+  view.querySelector('#bk').onclick = renderMe;
+  view.querySelector('#go').onclick = async () => {
+    if (np.value !== np2.value) return changePinForm('PIN ใหม่ทั้งสองช่องไม่ตรงกัน');
+    try { await api('my/pin', { current: cur.value, pin: np.value }); changePinForm('เปลี่ยน PIN เรียบร้อย ครั้งหน้าใช้ PIN ใหม่', true); }
+    catch (e) { if (token) changePinForm(e.message); }
+  };
+}
+
+// ---------- ขอแก้ไขข้อมูลส่วนตัว (เภสัชกรตรวจก่อนบันทึกลงระบบร้าน) ----------
+const EDIT_FIELDS = [
+  ['Phone', 'เบอร์โทร', 'tel'], ['Email', 'อีเมล', 'email'], ['BirthDate', 'วันเกิด', 'date'],
+  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา (ชื่อยา / อาการ)', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
+
+function editForm(msg = '', ok = false) {
+  const c = me.Contact || {};
+  const pend = Object.fromEntries((me.PendingEdits || []).map(p => [p.Field, p.NewValue]));
+  const rej = me.RejectedEdits || [];
+  const label = k => EDIT_FIELDS.find(f => f[0] === k)?.[1] || k;
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2>แก้ไขข้อมูลของฉัน</h2>
+    <div class="sub">แก้ช่องที่ต้องการแล้วกดส่ง เภสัชกรจะตรวจสอบก่อนบันทึกลงระบบร้าน</div>
+    ${rej.map(r => `<div class="pend" style="margin-top:8px">✗ คำขอแก้ ${esc(label(r.Field))} ไม่ได้รับอนุมัติ${r.Note ? ': ' + esc(r.Note) : ''}</div>`).join('')}
+    <div class="ef">${EDIT_FIELDS.map(([k, t, type]) => `<label class="lb">${t}</label>
+      ${type === 'area' ? `<textarea id="f_${k}" rows="2" maxlength="500">${esc(c[k])}</textarea>`
+        : `<input id="f_${k}" type="${type}" value="${esc(c[k])}" ${type === 'tel' ? 'inputmode="numeric" maxlength="10"' : type === 'email' ? 'maxlength="50"' : ''} autocomplete="off">`}
+      ${k in pend ? `<div class="pend">⏳ รอตรวจสอบ: ${esc(pend[k] || '(ลบข้อมูล)')}</div>` : ''}`).join('')}
+    <label class="lb">หมายเหตุถึงเภสัชกร (ถ้ามี)</label><textarea id="f_note" rows="2" maxlength="300"></textarea></div>
+    <button class="go" id="go">ส่งคำขอแก้ไข</button><div class="${ok ? 'okmsg' : 'err'}">${esc(msg)}</div>`;
+  view.querySelector('#bk').onclick = renderMe;
+  const btn = view.querySelector('#go');
+  btn.onclick = async () => {
+    const body = { note: view.querySelector('#f_note').value };
+    EDIT_FIELDS.forEach(([k]) => { const v = view.querySelector('#f_' + k).value; if (v.trim() !== (c[k] || '').trim()) body[k] = v; });
+    if (Object.keys(body).length === 1) return editForm('ยังไม่ได้แก้ไขข้อมูล');
+    btn.disabled = true;
+    try { me = { ...me, ...(await api('my/edit', body)) }; editForm('ส่งคำขอแล้ว เภสัชกรจะตรวจสอบและบันทึกให้', true); }
+    catch (e) { if (token) editForm(e.message); }
+  };
+  window.scrollTo(0, 0);
+}
+
+// ---------- เริ่มต้น ----------
 fetch('/api/settings').then(r => r.json()).then(s => { if (s.ShopName) document.getElementById('shop').textContent = s.ShopName; }).catch(() => {});
-const tabs = () => PUBLIC ? ['history', 'drugs'] : ['points', 'history', 'drugs'];
-const fromHash = () => { const h = location.hash.slice(1); return tabs().includes(h) ? h : tabs()[0]; };
-window.addEventListener('hashchange', () => { if (fromHash() !== current) show(fromHash()); });
 api('mode').then(m => { PUBLIC = !!m.public; }).catch(() => {}).then(() => {
   if (PUBLIC) {
-    // เว็บไซต์: ไม่มีเช็คแต้มด้วยเบอร์อย่างเดียว — รวมแต้มไว้กับประวัติยา (ต้องใช้ PIN)
-    document.querySelector('[data-tab="points"]').remove();
-    document.querySelector('[data-tab="history"]').textContent = 'แต้มและประวัติยา';
-    document.querySelector('.tabs').style.gridTemplateColumns = 'repeat(2, 1fr)';
-    document.title = 'สมาชิก · ค้นหาวิธีใช้ยา';
+    // เว็บไซต์: มีแค่พื้นที่สมาชิก (ต้องใช้ PIN)
+    document.getElementById('subtitle').hidden = false;
+    show('member');
+  } else {
+    document.getElementById('tabs').hidden = false;
+    show(location.hash === '#member' || location.hash === '#history' ? 'member' : 'points');
   }
-  show(fromHash());
 });
 </script>
 </body>

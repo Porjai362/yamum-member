@@ -8,7 +8,15 @@ let rewardsCache = null;
 // ---------- helpers ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const int = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+const int = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+// แหล่งแต้ม: 'cw' = ใช้แต้มจากโปรแกรม CW (แลก/ปรับที่ CW) / 'own' = คำนวณเองในระบบสมาชิก
+const cwMode = () => settings.PointSource !== 'own';
+function cwRuleText() {
+  const c = settings.CwPoint || {};
+  if (!c.ok) return 'อ่านการตั้งค่าแต้มจาก CW ไม่ได้';
+  if (!c.Active) return 'ระบบแต้มใน CW ปิดอยู่';
+  return `ซื้อ ${int(c.RecPrice)} บาท ได้ ${int(c.RecPoint)} แต้ม`;
+}
 const toDate = s => s ? new Date(s.replace(' ', 'T')) : null;
 const dateTh = s => { const d = toDate(s); return d && d.getFullYear() > 1900 ? d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-'; };
 const dateTimeTh = s => { const d = toDate(s); return d ? d.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'; };
@@ -41,7 +49,7 @@ async function api(path, body) {
 }
 
 // ---------- router ----------
-const views = { dash: viewDash, members: viewMembers, activity: viewActivity, rewards: viewRewards, settings: viewSettings };
+const views = { dash: viewDash, members: viewMembers, edits: viewEdits, points: viewPoints, activity: viewActivity, rewards: viewRewards, settings: viewSettings };
 async function route() {
   const name = (location.hash || '#dash').slice(1).split('?')[0];
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + name));
@@ -63,8 +71,8 @@ async function viewDash() {
     <div class="card kpi"><div class="label">ยอดขายสมาชิก (${monthName})</div><div class="value">฿${money(d.sales.MemberTotal)}</div>
       <div class="sub">${share}% ของยอดขายร้าน · ${int(d.sales.MemberBills)} บิล</div></div>
     <div class="card kpi"><div class="label">แต้มคงค้างทั้งระบบ</div><div class="value">${int(d.pointsOutstanding)}</div>
-      <div class="sub">${settings.BahtPerPoint} บาท = 1 แต้ม</div></div>
-    <div class="card kpi"><div class="label">แลกแต้มเดือนนี้</div><div class="value">${int(d.redeemMonth.N)} ครั้ง</div>
+      <div class="sub">${cwMode() ? 'จากโปรแกรม CW · ' + esc(cwRuleText()) : settings.BahtPerPoint + ' บาท = 1 แต้ม'}</div></div>
+    <div class="card kpi"><div class="label">${cwMode() ? 'ใช้แต้มเป็นส่วนลดเดือนนี้' : 'แลกแต้มเดือนนี้'}</div><div class="value">${int(d.redeemMonth.N)} ${cwMode() ? 'บิล' : 'ครั้ง'}</div>
       <div class="sub">ใช้ไป ${int(d.redeemMonth.Points)} แต้ม</div></div>
   </div>
   <div class="grid cols">
@@ -151,8 +159,9 @@ function renderMember(tab) {
     <button class="close" onclick="closeMember()" aria-label="ปิด">×</button>
   </div>
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-    <button class="btn primary" onclick="redeemDialog()">🎁 แลกของรางวัล</button>
-    <button class="btn" onclick="adjustDialog()">± ปรับแต้ม</button>
+    ${current.pointSource === 'cw' ? '<span class="small muted" style="align-self:center">แต้มจากโปรแกรม CW · ใช้แต้มแทนเงินสดที่หน้าขาย CW</span>' : `<button class="btn primary" onclick="redeemDialog()">🎁 แลกของรางวัล</button>
+    <button class="btn" onclick="adjustDialog()">± ปรับแต้ม</button>`}
+    <button class="btn" onclick="editDialog()">✏️ แก้ไขข้อมูล</button>
     <button class="btn" onclick="pinDialog()">🔒 ${current.pin ? 'เปลี่ยน PIN ดูประวัติยา' : 'ตั้ง PIN ดูประวัติยา'}</button>
   </div>
   <div class="small muted" style="margin-top:6px">${current.pin
@@ -168,8 +177,8 @@ function renderMember(tab) {
       <div><div class="k">มาล่าสุด</div><div class="v">${daysAgo(m.LastVisit)}</div></div>
       <div><div class="k">ยอดซื้อ 12 เดือน</div><div class="v">฿${money(m.Spend365)}</div></div>
       <div><div class="k">ยอดซื้อสะสมทั้งหมด</div><div class="v">฿${money(m.SpendAll)} · ${int(m.Visits)} ครั้ง</div></div>
-      <div><div class="k">แต้มที่ได้จากการซื้อ</div><div class="v">${int(m.Earned)}</div></div>
-      <div><div class="k">แลกไปแล้ว / ปรับ</div><div class="v">${int(m.Redeemed)} / ${m.Adjusted > 0 ? '+' : ''}${int(m.Adjusted)}</div></div>
+      <div><div class="k">แต้มที่ได้จากการซื้อ${current.pointSource === 'cw' ? ' (CW)' : ''}</div><div class="v">${int(m.Earned)}</div></div>
+      <div><div class="k">${current.pointSource === 'cw' ? 'ใช้เป็นส่วนลด / ปรับใน CW' : 'แลกไปแล้ว / ปรับ'}</div><div class="v">${int(m.Redeemed)} / ${m.Adjusted > 0 ? '+' : ''}${int(m.Adjusted)}</div></div>
     </div>
     <div class="card">
       ${m.NextTier ? `<div class="small">อีก <b>฿${money(m.ToNextTier)}</b> จะได้เป็น ${badge(m.NextTier)}</div>
@@ -180,9 +189,10 @@ function renderMember(tab) {
     ${m.Address || m.Comment ? `<div class="card small">${m.Address ? '<div><span class="muted">ที่อยู่:</span> ' + esc(m.Address) + '</div>' : ''}${m.Comment ? '<div><span class="muted">หมายเหตุ:</span> ' + esc(m.Comment) + '</div>' : ''}</div>` : ''}
     <div class="subtabs">
       <button class="chip ${tab === 'orders' ? 'on' : ''}" onclick="renderMember('orders')">ประวัติการซื้อ (${orders.length})</button>
-      <button class="chip ${tab === 'ledger' ? 'on' : ''}" onclick="renderMember('ledger')">ประวัติแลก/ปรับแต้ม (${ledger.length})</button>
+      ${current.pointSource === 'cw' ? '' : `<button class="chip ${tab === 'ledger' ? 'on' : ''}" onclick="renderMember('ledger')">ประวัติแลก/ปรับแต้ม (${ledger.length})</button>`}
+      <button class="chip ${tab === 'edits' ? 'on' : ''}" onclick="renderMember('edits')">แก้ไขข้อมูล (${current.edits.length})${pendingOf(current.edits) ? ` <span class="pill red">รออนุมัติ ${pendingOf(current.edits)}</span>` : ''}</button>
     </div>
-    <div class="card" style="padding:0">${tab === 'orders' ? ordersTable(orders) : ledgerTable(ledger, false, true)}</div>
+    <div class="card" style="padding:0">${tab === 'orders' ? ordersTable(orders) : tab === 'edits' ? editsTable(current.edits, false) : ledgerTable(ledger, false, true)}</div>
   </div>`;
 }
 
@@ -191,7 +201,7 @@ function ordersTable(orders) {
   return `<table><thead><tr><th>วันที่</th><th>เลขที่บิล</th><th class="num">ยอดสุทธิ</th><th class="num">แต้ม</th></tr></thead><tbody>
   ${orders.map(o => `<tr class="click" data-order="${o.Id}"><td class="small">${dateTimeTh(o.Date)}</td><td class="small">${esc(o.Code)}</td>
     <td class="num">฿${money(o.Net)}${o.Returned ? `<div class="small muted">คืน ฿${money(o.Returned)}</div>` : ''}</td>
-    <td class="num">${o.Points ? '+' + int(o.Points) : '<span class="muted">-</span>'}</td></tr>`).join('')}</tbody></table>`;
+    <td class="num">${o.Points ? '+' + int(o.Points) : '<span class="muted">-</span>'}${o.PayPoints ? `<div class="small" style="color:var(--danger)">ใช้ ${int(o.PayPoints)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
 }
 
 async function toggleOrder(tr) {
@@ -300,6 +310,106 @@ function pinDialog() {
   if (f.nopin) f.nopin.onchange = () => { f.pin.required = f.pin2.required = !f.nopin.checked; };
 }
 
+// ---------- แก้ไขข้อมูลลูกค้า (บันทึกลงโปรแกรม CW) ----------
+const EDIT_FIELDS = [
+  ['Phone', 'เบอร์โทร', 'tel'], ['Email', 'อีเมล', 'email'], ['BirthDate', 'วันเกิด', 'date'],
+  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
+const EDIT_LABEL = Object.fromEntries(EDIT_FIELDS.map(f => [f[0], f[1]]));
+const EDIT_STATUS = { pending: ['รออนุมัติ', 'red'], approved: ['อนุมัติแล้ว', ''], applied: ['พนักงานแก้', ''], rejected: ['ไม่อนุมัติ', 'gray'], superseded: ['ถูกแทนที่', 'gray'] };
+const pendingOf = rows => rows.filter(e => e.Status === 'pending').length;
+const editVal = (k, v) => !v ? '<span class="muted">(ว่าง)</span>' : k === 'BirthDate' ? dateTh(v) : esc(v);
+
+function editDialog() {
+  const m = current.member;
+  const cur = { Phone: m.Phone, Email: m.Email, BirthDate: (m.BirthDate || '').slice(0, 10), Address: m.Address, Allergy: m.Allergy, Disease: m.Disease };
+  if (cur.BirthDate.slice(0, 4) < '1900') cur.BirthDate = '';
+  dialog(`แก้ไขข้อมูล · ${esc(m.FullName)}`, `
+    <div class="small muted">บันทึกแล้วจะแก้ในโปรแกรม CW ทันที (เก็บค่าเดิมไว้ในประวัติ)</div>
+    ${EDIT_FIELDS.map(([k, label, type]) => `<label class="f">${label}${type === 'area'
+      ? `<textarea name="${k}" rows="2" maxlength="500">${esc(cur[k])}</textarea>`
+      : `<input name="${k}" type="${type}" value="${esc(cur[k])}" ${type === 'tel' ? 'inputmode="numeric" maxlength="12"' : type === 'email' ? 'maxlength="50"' : ''}>`}</label>`).join('')}
+    ${staffField()}`, 'บันทึกลง CW', async dlg => {
+    const f = dlg.querySelector('form');
+    const body = { staff: f.staff.value };
+    EDIT_FIELDS.forEach(([k]) => { if (f[k].value.trim() !== (cur[k] || '').trim()) body[k] = f[k].value; });
+    if (Object.keys(body).length === 1) throw new Error('ยังไม่ได้แก้ไขข้อมูล');
+    if ('Allergy' in body && !confirm('ยืนยันแก้ข้อมูลแพ้ยาใน CW?\n\nเดิม: ' + (cur.Allergy || '(ว่าง)') + '\nใหม่: ' + (body.Allergy.trim() || '(ว่าง)'))) throw new Error('ยกเลิกแล้ว');
+    setStaff(f.staff.value.trim());
+    await api(`members/${m.Id}/edit`, body);
+    toast('บันทึกลง CW แล้ว');
+    await openMember(m.Id);
+    renderMember('edits');
+  });
+}
+
+function editsTable(rows, showName) {
+  if (!rows.length) return '<div class="empty small">ยังไม่มีการแก้ไขข้อมูล</div>';
+  return `<table><thead><tr><th>วันที่</th>${showName ? '<th>สมาชิก</th>' : ''}<th>ช่อง</th><th>เดิม → ใหม่</th><th>สถานะ</th><th></th></tr></thead><tbody>
+  ${rows.map(e => { const st = EDIT_STATUS[e.Status] || [e.Status, '']; return `<tr><td class="small">${dateTimeTh(e.CreatedAt)}<div class="muted">${e.Source === 'member' ? 'ลูกค้าขอแก้' : 'พนักงาน'}</div></td>
+    ${showName ? `<td class="click" data-mid="${e.CustomerId}"><a href="javascript:void 0">${esc(e.FullName || '#' + e.CustomerId)}</a><div class="small muted">${esc(e.Code || '')}</div></td>` : ''}
+    <td><b>${esc(e.Label || EDIT_LABEL[e.Field] || e.Field)}</b></td>
+    <td class="small">${editVal(e.Field, e.OldValue)} → <b>${editVal(e.Field, e.NewValue)}</b>${e.Note ? `<div class="muted">หมายเหตุ: ${esc(e.Note)}</div>` : ''}</td>
+    <td class="small"><span class="pill ${st[1]}">${st[0]}</span>${e.DecidedBy ? `<div class="muted">${esc(e.DecidedBy)} ${dateTimeTh(e.DecidedAt)}</div>` : ''}</td>
+    <td style="white-space:nowrap">${e.Status === 'pending' ? `<button class="btn sm primary" onclick="decideEdit(${e.Id},true)">อนุมัติ</button>
+      <button class="btn sm danger" onclick="decideEdit(${e.Id},false)">ไม่อนุมัติ</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`;
+}
+
+async function decideEdit(id, approve) {
+  const staff = prompt((approve ? 'อนุมัติ — ข้อมูลจะถูกบันทึกลงโปรแกรม CW' : 'ไม่อนุมัติคำขอนี้') + '\nชื่อพนักงาน:', getStaff());
+  if (!staff) return;
+  const note = approve ? '' : (prompt('เหตุผลที่ไม่อนุมัติ (ลูกค้าจะเห็น):', '') || '');
+  try {
+    setStaff(staff.trim());
+    await api(`edits/${id}/${approve ? 'approve' : 'reject'}`, { staff, note });
+    toast(approve ? 'อนุมัติและบันทึกลง CW แล้ว' : 'ไม่อนุมัติแล้ว');
+    if (current) { const mid = current.member.Id; await openMember(mid); renderMember('edits'); }
+    if (location.hash.startsWith('#edits')) route();
+    refreshEditBadge();
+  } catch (e) { toast(e.message, true); }
+}
+
+let editFilter = 'pending';
+async function viewEdits() {
+  const rows = await api('edits?status=' + editFilter);
+  main.innerHTML = `<div class="toolbar"><h2 style="margin:0">คำขอแก้ไขข้อมูลลูกค้า</h2>
+    ${[['pending', 'รออนุมัติ'], ['', 'ทั้งหมด']].map(([v, t]) => `<button class="chip ${editFilter === v ? 'on' : ''}" data-ef="${v}">${t}</button>`).join('')}</div>
+  <div class="card" style="padding:0">${editsTable(rows, true)}</div>
+  <p class="muted small">ลูกค้าขอแก้ข้อมูลจากหน้าสมาชิก → อนุมัติแล้วระบบจะบันทึกลงโปรแกรม CW ให้ (ตรวจข้อมูลแพ้ยา/โรคประจำตัวกับลูกค้าก่อนอนุมัติ)</p>`;
+  main.querySelectorAll('[data-ef]').forEach(b => b.onclick = () => { editFilter = b.dataset.ef; route(); });
+  refreshEditBadge(editFilter === 'pending' ? rows.length : undefined);
+}
+
+async function refreshEditBadge(n) {
+  try { if (n === undefined) n = (await api('edits?status=pending')).length; } catch { return; }
+  const a = $('#tabs a[href="#edits"]');
+  if (a) a.innerHTML = 'คำขอแก้ไข' + (n ? ` <span class="pill red">${n}</span>` : '');
+}
+
+// ---------- คำนวณแต้มตามอัตรา CW ----------
+async function viewPoints() {
+  const d = await api('points/recalc');
+  const c = d.config;
+  main.innerHTML = `<div class="toolbar"><h2 style="margin:0">คำนวณแต้มตามอัตราของ CW</h2>
+    <button class="btn primary" onclick="route()">🧮 คำนวณใหม่</button></div>
+  <div class="card small">
+    อัตราใน CW: ซื้อ ${int(c.RecPrice)} บาท ได้ ${int(c.RecPoint)} แต้ม · ช่วงวันที่ ${c.Begin ? dateTh(c.Begin) : 'ไม่กำหนด'} – ${c.End ? dateTh(c.End) : 'ไม่กำหนด'}
+    ${!c.Active || !c.RecActive ? '<div class="alert warn" style="margin-top:8px">ระบบได้แต้มใน CW ปิดอยู่</div>' : ''}
+    ${c.End && toDate(c.End) <= new Date() ? '<div class="alert warn" style="margin-top:8px">ช่วงสะสมแต้มใน CW สิ้นสุดแล้ว — บิลใหม่จะไม่ได้แต้ม ให้ขยายวันสิ้นสุดในโปรแกรม CW</div>' : ''}
+    <div style="margin-top:8px">คิดจากยอดสุทธิแต่ละบิล (หักคืนสินค้า) ในช่วงวันที่ข้างบน ปัดเศษแต้มลงต่อบิล — <b>แสดงผลอย่างเดียว ยังไม่บันทึกลง CW</b></div>
+  </div>
+  <div class="grid kpis">
+    <div class="card kpi"><div class="label">สมาชิกที่มีบิลในช่วงนี้</div><div class="value">${int(d.rows.length)}</div></div>
+    <div class="card kpi"><div class="label">แต้มที่ควรได้ (คำนวณ)</div><div class="value">${int(d.totalCalc)}</div></div>
+    <div class="card kpi"><div class="label">แต้มใน CW ตอนนี้</div><div class="value">${int(d.totalCurrent)}</div></div>
+  </div>
+  <div class="card" style="padding:0">${d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>รหัส</th><th>ชื่อ</th><th class="num">บิล</th><th class="num">ยอดสุทธิ</th>
+    <th class="num">ควรได้</th><th class="num">ใน CW</th><th class="num">ต่าง</th></tr></thead><tbody>
+    ${d.rows.map(r => `<tr class="click" data-mid="${r.Id}"><td class="small">${esc(r.Code)}</td><td>${esc(r.FullName)}</td><td class="num">${int(r.Bills)}</td>
+      <td class="num">฿${money(r.Net)}</td><td class="num"><b>${int(r.Calc)}</b></td><td class="num">${int(r.InCw)}</td>
+      <td class="num" style="${r.Calc - r.InCw ? 'color:var(--danger)' : ''}">${r.Calc - r.InCw > 0 ? '+' : ''}${int(r.Calc - r.InCw)}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">ไม่มีบิลสมาชิกในช่วงสะสมแต้ม</div>'}</div>`;
+}
+
 // ---------- activity ----------
 async function viewActivity() {
   const rows = await api('ledger');
@@ -314,7 +424,8 @@ async function viewRewards() {
   ${rows.map(r => `<tr><td><b>${esc(r.Name)}</b></td><td class="num">${int(r.Points)}</td><td class="small muted">${esc(r.Note)}</td>
     <td>${r.IsActive ? '<span class="pill">เปิดใช้</span>' : '<span class="pill red">ปิด</span>'}</td>
     <td><button class="btn sm" data-edit='${esc(JSON.stringify(r))}'>แก้ไข</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">ยังไม่มีของรางวัล</div>'}</div>
-  <p class="muted small">คิดแต้ม: ทุก ${esc(settings.BahtPerPoint)} บาท = 1 แต้ม → ของรางวัล 100 แต้ม เท่ากับลูกค้าซื้อครบ ฿${int(settings.BahtPerPoint * 100)}</p>`;
+  ${cwMode() ? `<div class="alert warn" style="margin-top:12px">ตอนนี้ใช้แต้มจากโปรแกรม CW — ลูกค้าใช้แต้มแทนเงินสดที่หน้าขาย CW ของรางวัลในหน้านี้จะไม่แสดงให้ลูกค้าและแลกไม่ได้ (เปลี่ยนได้ที่ ตั้งค่า → แหล่งแต้ม)</div>`
+    : `<p class="muted small">คิดแต้ม: ทุก ${esc(settings.BahtPerPoint)} บาท = 1 แต้ม → ของรางวัล 100 แต้ม เท่ากับลูกค้าซื้อครบ ฿${int(settings.BahtPerPoint * 100)}</p>`}`;
   main.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => rewardDialog(JSON.parse(b.dataset.edit)));
 }
 
@@ -342,9 +453,14 @@ async function viewSettings() {
     <label class="f">รวมลูกค้าขายส่งเป็นสมาชิก<select name="IncludeWholesale"><option value="0">ไม่รวม</option><option value="1">รวม</option></select></label>
   </div></div>
   <div class="card"><h3>การสะสมแต้ม</h3><div class="form-grid">
+    <label class="f">แหล่งแต้ม<select name="PointSource">
+      <option value="cw">ใช้แต้มจากโปรแกรม CW (แนะนำ)</option><option value="own">คำนวณแต้มเองในระบบสมาชิก (แบบเดิม)</option></select></label>
+  </div>
+  <div id="cwPointBox" class="small" style="margin-top:10px"></div>
+  <div id="ownPointBox"><div class="form-grid" style="margin-top:10px">
     ${fld('BahtPerPoint', 'ยอดซื้อกี่บาท = 1 แต้ม', 'number', 'min="1" step="any" required')}
     ${fld('PointStartDate', 'เริ่มนับแต้มจากบิลตั้งแต่วันที่', 'date', 'required')}
-  </div><p class="small muted">แต้มคำนวณจากบิลขายใน CW ทุกบิลที่ผูกรหัสลูกค้า (หักยอดรับคืนสินค้าแล้ว) — แต้มต่อบิลปัดเศษลง เปลี่ยนค่าแล้วแต้มทุกคนคำนวณใหม่ทันที</p></div>
+  </div><p class="small muted">แต้มคำนวณจากบิลขายใน CW ทุกบิลที่ผูกรหัสลูกค้า (หักยอดรับคืนสินค้าแล้ว) — แต้มต่อบิลปัดเศษลง เปลี่ยนค่าแล้วแต้มทุกคนคำนวณใหม่ทันที</p></div></div>
   <div class="card"><h3>ระดับสมาชิก (ยอดซื้อย้อนหลัง 12 เดือน)</h3><div class="form-grid">
     ${fld('TierSilver', 'ซิลเวอร์ ตั้งแต่ (บาท)', 'number', 'min="1" required')}
     ${fld('TierGold', 'โกลด์ ตั้งแต่ (บาท)', 'number', 'min="1" required')}
@@ -367,6 +483,25 @@ async function viewSettings() {
   const f = $('#sf');
   f.IncludeWholesale.value = s.IncludeWholesale;
   f.AutoUpdate.value = s.AutoUpdate;
+  f.PointSource.value = s.PointSource === 'own' ? 'own' : 'cw';
+  const c = s.CwPoint || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const warn = [];
+  if (!c.ok) warn.push('อ่านการตั้งค่าแต้มจาก CW ไม่ได้' + (c.error ? ': ' + c.error : ''));
+  else {
+    if (!c.Active) warn.push('ระบบแต้มขายปลีกใน CW ยังปิดอยู่');
+    if (c.Active && !c.RecActive) warn.push('CW ปิดการ "ได้แต้ม" อยู่ — ลูกค้าจะไม่ได้แต้มจากการซื้อ');
+    if (c.End && c.End <= today) warn.push(`ช่วงเวลาสะสมแต้มใน CW สิ้นสุด ${dateTh(c.End)} — หลังจากนี้ CW อาจไม่ให้แต้ม ให้ขยายวันสิ้นสุดใน CW`);
+  }
+  $('#cwPointBox').innerHTML = c.ok ? `
+    <div>ได้แต้ม: <b>${esc(cwRuleText())}</b> ${c.RecActive ? '' : '(ปิด)'}</div>
+    <div>ใช้แต้ม: ${c.PayActive ? `ตั้งไว้ "แต้ม ${int(c.PayPoint)} / ราคา ${int(c.PayPrice)} บาท"` : 'ปิด'} — ใช้แต้มแทนเงินสดที่หน้าขาย CW</div>
+    <div>ช่วงเวลา: ${dateTh(c.Begin)} – ${dateTh(c.End)}</div>
+    <div class="muted">แก้การตั้งค่าแต้มได้ที่โปรแกรม CW · ระบบสมาชิกแสดงยอดแต้มและประวัติจาก CW และปิดปุ่มแลก/ปรับแต้มในระบบนี้ (กันแต้มซ้ำสองที่)</div>
+    ${warn.map(w => `<div class="alert warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}`
+    : warn.map(w => `<div class="alert warn">⚠ ${esc(w)}</div>`).join('');
+  const syncPoint = () => { const cw = f.PointSource.value === 'cw'; $('#cwPointBox').hidden = !cw; $('#ownPointBox').hidden = cw; };
+  f.PointSource.onchange = syncPoint; syncPoint();
   const showUpd = u => {
     $('#updInfo').innerHTML = `<div>เวอร์ชันที่ใช้อยู่: <b>${esc(u.current)}</b></div>
       ${u.configured ? `<div>เวอร์ชันล่าสุด: <b>${esc(u.latest || '-')}</b> ${u.available ? '<span class="pill">มีอัปเดต</span>' : u.latest ? '<span class="muted">(ล่าสุดแล้ว)</span>' : ''}</div>
@@ -461,5 +596,7 @@ function applyShop() {
   }
   route();
   api('update').then(showUpdateBar).catch(() => {});
+  refreshEditBadge();
+  setInterval(() => refreshEditBadge(), 2 * 60 * 1000);
   setInterval(() => api('update').then(showUpdateBar).catch(() => {}), 30 * 60 * 1000);
 })();
