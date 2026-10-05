@@ -328,7 +328,7 @@ function changePinForm(msg = '', ok = false) {
 // ---------- ขอแก้ไขข้อมูลส่วนตัว (เภสัชกรตรวจก่อนบันทึกลงระบบร้าน) ----------
 const EDIT_FIELDS = [
   ['Phone', 'เบอร์โทร', 'tel'], ['Email', 'อีเมล', 'email'], ['BirthDate', 'วันเกิด', 'date'],
-  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา (ชื่อยา / อาการ)', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
+  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา (ชื่อยา ถ้ามีหลายตัวคั่นด้วย ,)', 'area'], ['AllergyNote', 'อาการที่แพ้ เช่น ผื่น บวม หายใจไม่ออก', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
 
 function editForm(msg = '', ok = false) {
   const c = me.Contact || {};

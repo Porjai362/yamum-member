@@ -313,36 +313,82 @@ function pinDialog() {
 // ---------- แก้ไขข้อมูลลูกค้า (บันทึกลงโปรแกรม CW) ----------
 const EDIT_FIELDS = [
   ['Phone', 'เบอร์โทร', 'tel'], ['Email', 'อีเมล', 'email'], ['BirthDate', 'วันเกิด', 'date'],
-  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
-const EDIT_LABEL = Object.fromEntries(EDIT_FIELDS.map(f => [f[0], f[1]]));
+  ['Address', 'ที่อยู่', 'area'], ['Allergy', 'แพ้ยา (ชื่อยาในโปรแกรม CW — ใช้เตือนตอนขาย)', 'drugs'],
+  ['AllergyNote', 'อาการแพ้ / หมายเหตุแพ้ยา', 'area'], ['Disease', 'โรคประจำตัว', 'area']];
+const EDIT_LABEL = { ...Object.fromEntries(EDIT_FIELDS.map(f => [f[0], f[1]])), Allergy: 'แพ้ยา' };
+
+// ---------- เลือกชื่อยาแพ้ จากรายชื่อยาสามัญของ CW ----------
+let drugNameList = null;
+async function loadDrugNames() { if (!drugNameList) drugNameList = await api('drugnames'); return drugNameList; }
+const splitDrugs = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
+// ชื่อยาที่ตรงกับรายการ CW (ไม่สนตัวพิมพ์เล็กใหญ่) ถ้าไม่ตรงคืน null
+const matchDrug = x => drugNameList.find(n => n.toLowerCase() === x.toLowerCase()) || null;
+
+function drugPickerHtml(name) {
+  return `<div class="drugpick" data-picker="${name}"><div class="chips-sel"></div>
+    <div style="display:flex;gap:6px"><input list="drugList" placeholder="พิมพ์ชื่อยา เช่น Amoxicillin แล้วเลือกจากรายการ" style="flex:1">
+    <button type="button" class="btn sm">เพิ่ม</button></div>
+    <div class="small muted hint"></div><input type="hidden" name="${name}"></div>`;
+}
+// ผูกช่องเลือกยา: เริ่มจากรายชื่อเดิม, ชื่อที่ไม่ตรงกับ CW แสดงเป็นสีแดง (ต้องลบ/เลือกใหม่)
+function bindDrugPicker(root, name, initial) {
+  const el = root.querySelector(`[data-picker="${name}"]`);
+  if (!$('#drugList')) { const dl = document.createElement('datalist'); dl.id = 'drugList'; dl.innerHTML = drugNameList.map(n => `<option value="${esc(n)}">`).join(''); document.body.append(dl); }
+  let list = splitDrugs(initial).map(x => matchDrug(x) || x);
+  const input = el.querySelector('input[list]'), hidden = el.querySelector('input[type=hidden]');
+  const render = () => {
+    el.querySelector('.chips-sel').innerHTML = list.map((d, i) => `<span class="pill ${matchDrug(d) ? '' : 'red'}" style="margin:0 4px 4px 0">${esc(d)}
+      <a href="javascript:void 0" data-rm="${i}" style="margin-left:4px">×</a></span>`).join('') || '<span class="small muted">ไม่แพ้ยา</span>';
+    el.querySelectorAll('[data-rm]').forEach(a => a.onclick = () => { list.splice(+a.dataset.rm, 1); render(); });
+    const bad = list.filter(d => !matchDrug(d));
+    el.querySelector('.hint').textContent = bad.length ? 'ชื่อสีแดงไม่มีในรายชื่อยาของ CW — ลบแล้วเลือกชื่อที่ตรงจากรายการ' : '';
+    hidden.value = list.join(',');
+  };
+  const add = () => {
+    const v = input.value.trim(); if (!v) return;
+    const hit = matchDrug(v);
+    if (!hit) { toast('ไม่พบ "' + v + '" ในรายชื่อยาของ CW — เลือกจากรายการ', true); return; }
+    if (!list.some(d => d.toLowerCase() === hit.toLowerCase())) list.push(hit);
+    input.value = ''; render();
+  };
+  el.querySelector('button').onclick = add;
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+  input.onchange = () => { if (matchDrug(input.value.trim())) add(); };
+  render();
+}
 const EDIT_STATUS = { pending: ['รออนุมัติ', 'red'], approved: ['อนุมัติแล้ว', ''], applied: ['พนักงานแก้', ''], rejected: ['ไม่อนุมัติ', 'gray'], superseded: ['ถูกแทนที่', 'gray'] };
 const pendingOf = rows => rows.filter(e => e.Status === 'pending').length;
 const editVal = (k, v) => !v ? '<span class="muted">(ว่าง)</span>' : k === 'BirthDate' ? dateTh(v) : esc(v);
 
-function editDialog() {
+async function editDialog() {
   const m = current.member;
-  const cur = { Phone: m.Phone, Email: m.Email, BirthDate: (m.BirthDate || '').slice(0, 10), Address: m.Address, Allergy: m.Allergy, Disease: m.Disease };
+  try { await loadDrugNames(); } catch (e) { toast(e.message, true); return; }
+  const cur = { Phone: m.Phone, Email: m.Email, BirthDate: (m.BirthDate || '').slice(0, 10), Address: m.Address,
+    Allergy: m.AllergyDrugs, AllergyNote: m.AllergyNote, Disease: m.Disease };
   if (cur.BirthDate.slice(0, 4) < '1900') cur.BirthDate = '';
-  dialog(`แก้ไขข้อมูล · ${esc(m.FullName)}`, `
+  const d = dialog(`แก้ไขข้อมูล · ${esc(m.FullName)}`, `
     <div class="small muted">บันทึกแล้วจะแก้ในโปรแกรม CW ทันที (เก็บค่าเดิมไว้ในประวัติ)</div>
-    ${EDIT_FIELDS.map(([k, label, type]) => `<label class="f">${label}${type === 'area'
+    ${EDIT_FIELDS.map(([k, label, type]) => `<label class="f">${label}${type === 'drugs' ? '</label>' + drugPickerHtml(k) : (type === 'area'
       ? `<textarea name="${k}" rows="2" maxlength="500">${esc(cur[k])}</textarea>`
-      : `<input name="${k}" type="${type}" value="${esc(cur[k])}" ${type === 'tel' ? 'inputmode="numeric" maxlength="12"' : type === 'email' ? 'maxlength="50"' : ''}>`}</label>`).join('')}
+      : `<input name="${k}" type="${type}" value="${esc(cur[k])}" ${type === 'tel' ? 'inputmode="numeric" maxlength="12"' : type === 'email' ? 'maxlength="50"' : ''}>`) + '</label>'}`).join('')}
     ${staffField()}`, 'บันทึกลง CW', async dlg => {
     const f = dlg.querySelector('form');
     const body = { staff: f.staff.value };
     EDIT_FIELDS.forEach(([k]) => { if (f[k].value.trim() !== (cur[k] || '').trim()) body[k] = f[k].value; });
     if (Object.keys(body).length === 1) throw new Error('ยังไม่ได้แก้ไขข้อมูล');
-    if ('Allergy' in body && !confirm('ยืนยันแก้ข้อมูลแพ้ยาใน CW?\n\nเดิม: ' + (cur.Allergy || '(ว่าง)') + '\nใหม่: ' + (body.Allergy.trim() || '(ว่าง)'))) throw new Error('ยกเลิกแล้ว');
+    if ('Allergy' in body && !confirm('ยืนยันแก้รายการแพ้ยาใน CW?\n\nเดิม: ' + (cur.Allergy || '(ไม่แพ้ยา)') + '\nใหม่: ' + (body.Allergy || '(ไม่แพ้ยา)'))) throw new Error('ยกเลิกแล้ว');
     setStaff(f.staff.value.trim());
     await api(`members/${m.Id}/edit`, body);
     toast('บันทึกลง CW แล้ว');
     await openMember(m.Id);
     renderMember('edits');
   });
+  bindDrugPicker(d, 'Allergy', cur.Allergy);
 }
 
+const editRows = {};
 function editsTable(rows, showName) {
+  rows.forEach(e => editRows[e.Id] = e);
   if (!rows.length) return '<div class="empty small">ยังไม่มีการแก้ไขข้อมูล</div>';
   return `<table><thead><tr><th>วันที่</th>${showName ? '<th>สมาชิก</th>' : ''}<th>ช่อง</th><th>เดิม → ใหม่</th><th>สถานะ</th><th></th></tr></thead><tbody>
   ${rows.map(e => { const st = EDIT_STATUS[e.Status] || [e.Status, '']; return `<tr><td class="small">${dateTimeTh(e.CreatedAt)}<div class="muted">${e.Source === 'member' ? 'ลูกค้าขอแก้' : 'พนักงาน'}</div></td>
@@ -355,6 +401,9 @@ function editsTable(rows, showName) {
 }
 
 async function decideEdit(id, approve) {
+  const e = editRows[id];
+  // คำขอแพ้ยาจากลูกค้า: ให้เภสัชกรเลือกชื่อยาที่ตรงกับรายชื่อยาของ CW ก่อนบันทึก
+  if (approve && e && e.Field === 'Allergy') return approveAllergy(e);
   const staff = prompt((approve ? 'อนุมัติ — ข้อมูลจะถูกบันทึกลงโปรแกรม CW' : 'ไม่อนุมัติคำขอนี้') + '\nชื่อพนักงาน:', getStaff());
   if (!staff) return;
   const note = approve ? '' : (prompt('เหตุผลที่ไม่อนุมัติ (ลูกค้าจะเห็น):', '') || '');
@@ -366,6 +415,29 @@ async function decideEdit(id, approve) {
     if (location.hash.startsWith('#edits')) route();
     refreshEditBadge();
   } catch (e) { toast(e.message, true); }
+}
+
+async function afterDecide(msg) {
+  toast(msg);
+  if (current) { const mid = current.member.Id; await openMember(mid); renderMember('edits'); }
+  if (location.hash.startsWith('#edits')) route();
+  refreshEditBadge();
+}
+
+async function approveAllergy(e) {
+  try { await loadDrugNames(); } catch (err) { toast(err.message, true); return; }
+  const d = dialog(`อนุมัติแพ้ยา · ${esc(e.FullName || '')}`, `
+    <div class="small">ลูกค้าเขียนมา: <b>${esc(e.NewValue || '(ไม่แพ้ยา)')}</b>${e.Note ? `<div class="muted">หมายเหตุ: ${esc(e.Note)}</div>` : ''}</div>
+    <div class="small muted" style="margin:6px 0">ตรวจกับลูกค้า แล้วเลือกชื่อยาจากรายชื่อยาของ CW (CW ใช้ชื่อเหล่านี้เตือนตอนขาย) — รายการนี้จะแทนที่รายการแพ้ยาเดิมใน CW</div>
+    <label class="f">รายการแพ้ยาที่จะบันทึกลง CW</label>${drugPickerHtml('pick')}
+    ${staffField()}`, 'อนุมัติ บันทึกลง CW', async dlg => {
+    const f = dlg.querySelector('form');
+    if (splitDrugs(f.pick.value).some(x => !matchDrug(x))) throw new Error('ยังมีชื่อยาที่ไม่อยู่ในรายชื่อยาของ CW (สีแดง)');
+    setStaff(f.staff.value.trim());
+    await api(`edits/${e.Id}/approve`, { staff: f.staff.value, value: f.pick.value });
+    await afterDecide('อนุมัติและบันทึกแพ้ยาลง CW แล้ว');
+  });
+  bindDrugPicker(d, 'pick', e.NewValue);
 }
 
 let editFilter = 'pending';
@@ -495,7 +567,7 @@ async function viewSettings() {
   }
   $('#cwPointBox').innerHTML = c.ok ? `
     <div>ได้แต้ม: <b>${esc(cwRuleText())}</b> ${c.RecActive ? '' : '(ปิด)'}</div>
-    <div>ใช้แต้ม: ${c.PayActive ? `ตั้งไว้ "แต้ม ${int(c.PayPoint)} / ราคา ${int(c.PayPrice)} บาท"` : 'ปิด'} — ใช้แต้มแทนเงินสดที่หน้าขาย CW</div>
+    <div>ใช้แต้ม: ${c.PayActive ? `<b>${int(c.PayPoint)} แต้ม = ${int(c.PayPrice)} บาท</b>` : 'ปิด'} — ใช้แต้มแทนเงินสดที่หน้าขาย CW</div>
     <div>ช่วงเวลา: ${dateTh(c.Begin)} – ${dateTh(c.End)}</div>
     <div class="muted">แก้การตั้งค่าแต้มได้ที่โปรแกรม CW · ระบบสมาชิกแสดงยอดแต้มและประวัติจาก CW และปิดปุ่มแลก/ปรับแต้มในระบบนี้ (กันแต้มซ้ำสองที่)</div>
     ${warn.map(w => `<div class="alert warn" style="margin-top:6px">⚠ ${esc(w)}</div>`).join('')}`

@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.8.0")]
+[assembly: System.Reflection.AssemblyVersion("1.8.2")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -958,6 +958,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
             return DecideEdit(ParseId(seg[1]), seg[2] == "approve", Body(ctx));
         }
         if (route == "points/recalc" && !post) return PointRecalc(s);
+        if (route == "drugnames") return DrugNames();
         if (route == "rewards" && !post) return Query("SELECT * FROM dbo.Reward ORDER BY IsActive DESC, Points");
         if (route == "rewards" && post) { RequirePin(ctx, s); return SaveReward(Body(ctx)); }
         if (route == "check") return SelfCheck(s, Q(ctx, "phone"));
@@ -1044,7 +1045,8 @@ ret AS (
   SELECT o.Id, o.Order_Code, o.Customer_Id cid, o.Date_Order d, o.OrderPriceNet gross,
          ISNULL(r.amt,0) returned, o.OrderPriceNet - ISNULL(r.amt,0) net,
          -- แต้มระบบ CW: ได้จากบิล (rec) / ใช้เป็นส่วนลด (pay) — หักส่วนที่คืนสินค้าแล้ว
-         ISNULL(o.RecPoint_Value,0) - ISNULL(r.retRec,0) rec, ISNULL(o.PayPoint_Value,0) - ISNULL(r.retPay,0) pay
+         -- CW ตั้งชื่อจากฝั่งลูกค้า: PayPoint_Value = แต้มที่ได้จากการจ่ายเงิน, RecPoint_Value = แต้มที่ใช้รับส่วนลด
+         ISNULL(o.PayPoint_Value,0) - ISNULL(r.retPay,0) rec, ISNULL(o.RecPoint_Value,0) - ISNULL(r.retRec,0) pay
   FROM " + Cw + @"[Order] o LEFT JOIN ret r ON r.Order_Id=o.Id
   WHERE ISNULL(o.IsOrderCancel,0)=0 AND o.Order_Status=2 AND ISNULL(o.IsDelete,0)=0
 )";
@@ -1082,10 +1084,13 @@ ret AS (
                     Func<string, string> day = k => v(k) is DateTime && ((DateTime)v(k)).Year > 1900 ? ((DateTime)v(k)).ToString("yyyy-MM-dd") : null;
                     res["ok"] = true;
                     res["Active"] = Convert.ToBoolean(v("Rt_IsActvie") ?? false);
-                    res["RecActive"] = Convert.ToBoolean(v("Rt_IsActvie_Rec") ?? false);
-                    res["PayActive"] = Convert.ToBoolean(v("Rt_IsActvie_Pay") ?? false);
-                    res["RecPrice"] = num("Rt_RecPrice_Rate"); res["RecPoint"] = num("Rt_RecPoint_Rate");
-                    res["PayPrice"] = num("Rt_PayPrice_Rate"); res["PayPoint"] = num("Rt_PayPoint_Rate");
+                    // ชื่อใน CW มองจากฝั่งลูกค้า: Pay = ลูกค้าจ่ายเงินแล้วได้แต้ม / Rec = ลูกค้าได้รับส่วนลดจากแต้ม
+                    // (ตรวจกับหน้าตั้งค่า CW แล้ว: ซื้อ 50 บาท = 1 แต้ม, 1 แต้ม = 1 บาท)
+                    // ในระบบนี้ Rec* = อัตราได้แต้ม, Pay* = อัตราใช้แต้ม
+                    res["RecActive"] = Convert.ToBoolean(v("Rt_IsActvie_Pay") ?? false);
+                    res["PayActive"] = Convert.ToBoolean(v("Rt_IsActvie_Rec") ?? false);
+                    res["RecPrice"] = num("Rt_PayPrice_Rate"); res["RecPoint"] = num("Rt_PayPoint_Rate");
+                    res["PayPrice"] = num("Rt_RecPrice_Rate"); res["PayPoint"] = num("Rt_RecPoint_Rate");
                     res["Begin"] = day("Rt_Date_Begin"); res["End"] = day("Rt_Date_End");
                 }
             }
@@ -1131,7 +1136,7 @@ WITH " + OrdersCte() + @", agg AS (
   FROM dbo.Ledger WHERE IsCancelled=0 GROUP BY CustomerId
 )
 SELECT c.Id, c.Customer_Code Code, c.BarCode, c.FullName, c.Phone, c.EmailAddress Email, c.BirthDate, c.Sex,
-       c.Address, c.Date_Register Registered, c.Intolerance Allergy, c.CongenitalDisease Disease, c.Comment,
+       c.Address, c.Date_Register Registered, CAST(c.DrgGenName_ItemCsv AS nvarchar(max)) AllergyDrugs, c.Intolerance AllergyNote, c.CongenitalDisease Disease, c.Comment,
        CAST(ISNULL(c.IsWholesaleCustomer,0) AS bit) Wholesale,
        ISNULL(a.visits,0) Visits, ISNULL(a.spendAll,0) SpendAll, ISNULL(a.spend365,0) Spend365, a.lastVisit LastVisit,
        CAST(ISNULL(a.earned,0) AS int) Earned, ISNULL(l.redeemed,0) Redeemed, ISNULL(l.adjusted,0) Adjusted,
@@ -1158,6 +1163,9 @@ WHERE ISNULL(c.IsDelete,0)=0" + (s["IncludeWholesale"] == "1" ? "" : " AND ISNUL
             else
                 r["Points"] = Convert.ToInt32(r["Earned"]) + Convert.ToInt32(r["Adjusted"]) - Convert.ToInt32(r["Redeemed"]);
             r.Remove("CwBalance"); r.Remove("CwRec"); r.Remove("CwPay");
+            // แพ้ยา = รายชื่อยาที่ CW ใช้เตือน + อาการแพ้/หมายเหตุ
+            string drugs = ((string)r["AllergyDrugs"] ?? "").Replace(",", ", "), note = (string)r["AllergyNote"] ?? "";
+            r["Allergy"] = drugs.Length > 0 && note.Length > 0 ? drugs + " (" + note + ")" : drugs + note;
             ApplyTier(r, s);
         }
         return rows;
@@ -1319,7 +1327,9 @@ WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", cu
         new[] { "Email", "EmailAddress", "อีเมล" },
         new[] { "Address", "Address", "ที่อยู่" },
         new[] { "BirthDate", "BirthDate", "วันเกิด" },
-        new[] { "Allergy", "Intolerance", "แพ้ยา" },
+        // แพ้ยาใน CW = รายชื่อยาสามัญ (จาก ListDrgGenName) คั่นด้วย , — CW ใช้เตือนตอนขายยา
+        new[] { "Allergy", "DrgGenName_ItemCsv", "แพ้ยา" },
+        new[] { "AllergyNote", "Intolerance", "อาการแพ้ / หมายเหตุ" },
         new[] { "Disease", "CongenitalDisease", "โรคประจำตัว" },
     };
 
@@ -1331,7 +1341,7 @@ WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", cu
     }
 
     // ตรวจและจัดรูปแบบค่าใหม่ ให้ตรงกับชนิด/ความยาวคอลัมน์ใน CW
-    static string NormalizeEdit(string key, string v)
+    static string NormalizeEdit(string key, string v, bool strict = true)
     {
         v = (v ?? "").Trim();
         switch (key)
@@ -1353,15 +1363,56 @@ WHERE (@cid=0 OR l.CustomerId=@cid) ORDER BY l.Id DESC", "@top", top, "@cid", cu
             case "Address":
                 if (v.Length > 500) throw new ApiError(400, "ที่อยู่ยาวเกินไป");
                 return v;
-            default: // Allergy, Disease
+            case "Allergy":
+                return NormalizeDrugList(v, strict);
+            default: // AllergyNote, Disease
                 if (v.Length > 500) throw new ApiError(400, EditField(key)[2] + " ยาวเกินไป");
                 return v;
         }
     }
 
+    // รายชื่อยาสามัญของ CW (ใช้เลือกแพ้ยา) เก็บไว้ 10 นาที
+    static List<string> DrugNameCache;
+    static DateTime DrugNameCacheAt;
+    static List<string> DrugNames()
+    {
+        if (DrugNameCache == null || DateTime.Now - DrugNameCacheAt > TimeSpan.FromMinutes(10))
+        {
+            DrugNameCache = Query("SELECT DISTINCT LTRIM(RTRIM(Name)) Name FROM " + Cw + "ListDrgGenName WHERE ISNULL(IsDelete,0)=0 AND LEN(Name) > 0 ORDER BY 1")
+                .Select(r => (string)r["Name"]).ToList();
+            DrugNameCacheAt = DateTime.Now;
+        }
+        return DrugNameCache;
+    }
+
+    // แพ้ยา: แยกชื่อด้วย , ; หรือขึ้นบรรทัดใหม่ แล้วรวมกลับเป็น "ยาA,ยาB" แบบที่ CW เก็บ
+    // strict = ต้องตรงกับรายชื่อยาของ CW (พนักงานบันทึก/อนุมัติ) — ลูกค้าส่งคำขอพิมพ์อะไรก็ได้ ให้เภสัชกรเลือกชื่อยาตอนอนุมัติ
+    static string NormalizeDrugList(string v, bool strict)
+    {
+        var names = new List<string>();
+        var unknown = new List<string>();
+        var master = strict ? DrugNames() : null;
+        foreach (var part in Regex.Split(v, @"[,;\r\n]+"))
+        {
+            string x = part.Trim();
+            if (x.Length == 0) continue;
+            if (strict)
+            {
+                string hit = master.FirstOrDefault(m => string.Equals(m, x, StringComparison.OrdinalIgnoreCase));
+                if (hit == null) { unknown.Add(x); continue; }
+                x = hit;
+            }
+            if (!names.Any(n => string.Equals(n, x, StringComparison.OrdinalIgnoreCase))) names.Add(x);
+        }
+        if (unknown.Count > 0) throw new ApiError(400, "ไม่พบชื่อยาในรายชื่อยาของ CW: " + string.Join(", ", unknown) + " — เลือกชื่อจากรายการ");
+        string res = string.Join(",", names);
+        if (res.Length > 600) throw new ApiError(400, "รายการแพ้ยายาวเกินไป");
+        return res;
+    }
+
     static Dictionary<string, string> CustomerValues(int id)
     {
-        var r = Query("SELECT Phone, EmailAddress, Address, BirthDate, Intolerance, CongenitalDisease FROM " + Cw + "Customer WHERE Id=@id AND ISNULL(IsDelete,0)=0", "@id", id).FirstOrDefault();
+        var r = Query("SELECT Phone, EmailAddress, Address, BirthDate, CAST(DrgGenName_ItemCsv AS nvarchar(max)) DrgGenName_ItemCsv, Intolerance, CongenitalDisease FROM " + Cw + "Customer WHERE Id=@id AND ISNULL(IsDelete,0)=0", "@id", id).FirstOrDefault();
         if (r == null) throw new ApiError(404, "ไม่พบลูกค้าในโปรแกรม CW");
         var d = new Dictionary<string, string>();
         foreach (var f in EditFields)
@@ -1435,11 +1486,12 @@ WHERE (@st='' OR e.Status=@st) AND (@cid=0 OR e.CustomerId=@cid) ORDER BY e.Id D
             string key = (string)e["Field"];
             if (approve)
             {
-                string v = NormalizeEdit(key, (string)e["NewValue"]);
+                // แพ้ยา: เภสัชกรเลือกชื่อยาที่ตรงกับรายชื่อยาของ CW แทนข้อความที่ลูกค้าพิมพ์มาได้ (ส่ง value)
+                string v = NormalizeEdit(key, b.ContainsKey("value") ? Str(b, "value") : (string)e["NewValue"]);
                 string old = CustomerValues(cid)[key];
                 WriteCustomerField(cid, key, v);
-                Exec("UPDATE dbo.CustomerEdit SET Status='approved', OldValue=@o, DecidedAt=GETDATE(), DecidedBy=@by WHERE Id=@id",
-                    "@id", editId, "@o", old, "@by", Trunc(staff, 100));
+                Exec("UPDATE dbo.CustomerEdit SET Status='approved', OldValue=@o, NewValue=@v, Note=CASE WHEN @v<>ISNULL(NewValue,'') THEN LEFT(ISNULL(NULLIF(Note,'')+N' · ','')+N'ลูกค้าเขียน: '+ISNULL(NewValue,''),300) ELSE Note END, DecidedAt=GETDATE(), DecidedBy=@by WHERE Id=@id",
+                    "@id", editId, "@o", old, "@v", v, "@by", Trunc(staff, 100));
             }
             else
                 Exec("UPDATE dbo.CustomerEdit SET Status='rejected', Note=@n, DecidedAt=GETDATE(), DecidedBy=@by WHERE Id=@id",
@@ -1458,7 +1510,7 @@ WHERE (@st='' OR e.Status=@st) AND (@cid=0 OR e.CustomerId=@cid) ORDER BY e.Id D
         foreach (var f in EditFields)
         {
             if (!b.ContainsKey(f[0])) continue;
-            string v = NormalizeEdit(f[0], Str(b, f[0]));
+            string v = NormalizeEdit(f[0], Str(b, f[0]), false);
             if (v != cur[f[0]]) changes.Add(new[] { f[0], cur[f[0]], v });
         }
         if (changes.Count == 0) throw new ApiError(400, "ไม่มีข้อมูลที่เปลี่ยนแปลง");
@@ -1764,7 +1816,11 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
         var c = CwPointConfig();
         if (!(c["ok"] is bool && (bool)c["ok"]) || !(bool)c["Active"] || !(bool)c["RecActive"]) return "สะสมแต้มทุกการซื้อที่ร้าน";
         double price = Convert.ToDouble(c["RecPrice"]), pts = Convert.ToDouble(c["RecPoint"]);
-        return price > 0 && pts > 0 ? "ซื้อทุก " + price.ToString("#,0.##") + " บาท ได้ " + pts.ToString("#,0.##") + " แต้ม" : "สะสมแต้มทุกการซื้อที่ร้าน";
+        string text = price > 0 && pts > 0 ? "ซื้อทุก " + price.ToString("#,0.##") + " บาท ได้ " + pts.ToString("#,0.##") + " แต้ม" : "สะสมแต้มทุกการซื้อที่ร้าน";
+        double usePts = Convert.ToDouble(c["PayPoint"]), useBaht = Convert.ToDouble(c["PayPrice"]);
+        if ((bool)c["PayActive"] && usePts > 0 && useBaht > 0)
+            text += " · ใช้ " + usePts.ToString("#,0.##") + " แต้ม แทนเงิน " + useBaht.ToString("#,0.##") + " บาท";
+        return text;
     }
 
     static object MyChangePin(HttpListenerContext ctx, Dictionary<string, object> b)
