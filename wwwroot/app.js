@@ -153,7 +153,11 @@ function renderMember(tab) {
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
     <button class="btn primary" onclick="redeemDialog()">🎁 แลกของรางวัล</button>
     <button class="btn" onclick="adjustDialog()">± ปรับแต้ม</button>
-  </div></div>
+    <button class="btn" onclick="pinDialog()">🔒 ${current.pin ? 'เปลี่ยน PIN ดูประวัติยา' : 'ตั้ง PIN ดูประวัติยา'}</button>
+  </div>
+  <div class="small muted" style="margin-top:6px">${current.pin
+    ? `ลูกค้าดูประวัติยาเองได้ (ตั้ง PIN โดย ${esc(current.pin.UpdatedBy)} ${dateTh(current.pin.UpdatedAt)})${current.pin.FailCount >= 10 ? ' · <b style="color:var(--danger)">ถูกล็อก — ตั้ง PIN ใหม่เพื่อปลดล็อก</b>' : ''}`
+    : 'ยังไม่มี PIN — ลูกค้ายังดูประวัติยาเองไม่ได้'}</div></div>
   <div class="m-body">
     ${m.Allergy ? `<div class="alert">⚠ แพ้ยา: ${esc(m.Allergy)}</div>` : ''}
     ${m.Disease ? `<div class="alert warn">โรคประจำตัว: ${esc(m.Disease)}</div>` : ''}
@@ -274,6 +278,26 @@ function adjustDialog() {
     toast('ปรับแต้มเรียบร้อย');
     await openMember(m.Id);
   });
+}
+
+function pinDialog() {
+  const m = current.member;
+  dialog(`PIN ดูประวัติยา · ${esc(m.FullName)}`, `
+    <div class="small muted">ให้ลูกค้าเป็นคนกด PIN เอง (ตัวเลข 4-6 หลัก) ลูกค้าใช้ <b>เบอร์โทร ${esc(m.Phone || '(ยังไม่มีเบอร์ในระบบ CW)')}</b> + PIN นี้ ดูประวัติการจ่ายยาที่หน้าลูกค้า</div>
+    <label class="f">PIN ใหม่<input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" required autocomplete="off"></label>
+    <label class="f">ยืนยัน PIN<input name="pin2" type="password" inputmode="numeric" maxlength="6" required autocomplete="off"></label>
+    ${current.pin ? '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="nopin"> ยกเลิก PIN (ลูกค้าจะดูประวัติยาเองไม่ได้)</label>' : ''}
+    ${staffField()}`, 'บันทึก', async dlg => {
+    const f = dlg.querySelector('form');
+    const remove = f.nopin?.checked;
+    if (!remove && f.pin.value !== f.pin2.value) throw new Error('PIN ทั้งสองช่องไม่ตรงกัน');
+    setStaff(f.staff.value.trim());
+    await api(`members/${m.Id}/pin`, { pin: remove ? '' : f.pin.value, staff: f.staff.value });
+    toast(remove ? 'ยกเลิก PIN แล้ว' : 'ตั้ง PIN แล้ว');
+    await openMember(m.Id);
+  });
+  const f = $('#dlg form');
+  if (f.nopin) f.nopin.onchange = () => { f.pin.required = f.pin2.required = !f.nopin.checked; };
 }
 
 // ---------- activity ----------

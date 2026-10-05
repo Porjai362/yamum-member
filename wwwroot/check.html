@@ -3,69 +3,244 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>เช็คแต้มสมาชิก</title>
+<title>บริการลูกค้า</title>
 <style>
-  :root { --brand: #0f7a5f; --ink: #1d2b28; --muted: #6b7c78; --line: #e2e9e7;
+  :root { --brand: #0f7a5f; --brand-2: #e6f4ef; --ink: #1d2b28; --muted: #6b7c78; --line: #e2e9e7;
+    --danger: #c0392b; --danger-bg: #fdecea; --warn-bg: #fff6e0;
     --member: #7a8a86; --silver: #8d99ae; --gold: #c9971c; --platinum: #4b3f8f; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; background: linear-gradient(160deg, #0f7a5f, #0b5a47); color: var(--ink);
-    font: 17px/1.5 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; display: grid; place-items: center; padding: 16px; }
-  .box { background: #fff; border-radius: 20px; width: min(440px, 100%); padding: 28px 24px; box-shadow: 0 20px 50px rgba(0,0,0,.25); text-align: center; }
-  h1 { font-size: 22px; margin: 0 0 4px; color: var(--brand); }
+    font: 17px/1.55 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; padding: 16px; overflow-x: hidden; }
+  .box { background: #fff; border-radius: 20px; width: min(620px, 100%); margin: 0 auto; padding: 22px 22px 26px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  h1 { font-size: 22px; margin: 0; color: var(--brand); text-align: center; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
   .muted { color: var(--muted); font-size: 14px; }
-  input { width: 100%; font: inherit; font-size: 28px; letter-spacing: 2px; text-align: center; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 18px 0 10px; }
+  .center { text-align: center; }
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 14px 0 18px; background: #eef4f2; padding: 4px; border-radius: 12px; }
+  .tabs button { font: inherit; font-size: 15px; border: 0; background: none; padding: 10px 4px; border-radius: 9px; cursor: pointer; color: var(--muted); }
+  .tabs button.on { background: #fff; color: var(--brand); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  input { width: 100%; font: inherit; font-size: 24px; letter-spacing: 1px; text-align: center; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; }
   input:focus { outline: none; border-color: var(--brand); }
-  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .pad button { font: inherit; font-size: 24px; padding: 12px; border: 0; border-radius: 12px; background: #eef4f2; cursor: pointer; }
+  input.search { text-align: left; font-size: 19px; letter-spacing: 0; }
+  label.lb { display: block; font-size: 14px; color: var(--muted); margin-top: 8px; }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .pad button { font: inherit; font-size: 24px; padding: 11px; border: 0; border-radius: 12px; background: #eef4f2; cursor: pointer; }
   .pad button:active { background: #d6e9e2; }
-  .go { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 20px; border: 0; border-radius: 12px; background: var(--brand); color: #fff; cursor: pointer; }
+  .go { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 19px; border: 0; border-radius: 12px; background: var(--brand); color: #fff; cursor: pointer; }
+  .go.light { background: #eef4f2; color: var(--ink); }
   .pts { font-size: 64px; font-weight: 800; color: var(--brand); line-height: 1; margin: 10px 0 4px; }
   .badge { display: inline-block; padding: 2px 14px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 15px; }
   .t-member { background: var(--member); } .t-silver { background: var(--silver); } .t-gold { background: var(--gold); } .t-platinum { background: var(--platinum); }
-  .rw { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; text-align: left; }
+  .rw { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
   .rw.ok b { color: var(--brand); }
-  .err { color: #c0392b; margin-top: 10px; min-height: 1.5em; }
+  .err { color: var(--danger); margin-top: 10px; min-height: 1.5em; text-align: center; }
+  .list { margin-top: 10px; }
+  .item { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 11px 4px; cursor: pointer; }
+  .item:hover { background: var(--brand-2); }
+  .item .nm { font-weight: 600; }
+  .item .sub { font-size: 14px; color: var(--muted); }
+  .item[disabled] { cursor: default; }
+  .item[disabled]:hover { background: none; }
+  .bill { margin-top: 14px; }
+  .bill-h { font-size: 14px; color: var(--muted); background: #f5f8f7; padding: 6px 10px; border-radius: 8px; }
+  .chips { display: flex; gap: 6px; margin: 10px 0 2px; }
+  .chip { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .sec { margin-top: 14px; }
+  .sec h3 { font-size: 15px; margin: 0 0 4px; color: var(--brand); }
+  .sec .txt { white-space: pre-line; background: #f7faf9; border-radius: 10px; padding: 10px 12px; }
+  .sec.warn h3 { color: var(--danger); }
+  .sec.warn .txt { background: var(--danger-bg); }
+  .note { margin-top: 16px; font-size: 13px; color: #8a5a00; background: var(--warn-bg); padding: 8px 12px; border-radius: 10px; }
+  .back { font: inherit; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; margin-bottom: 8px; }
+  .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); margin-left: 6px; }
+  .row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 </style>
 </head>
 <body>
-<div class="box" id="box"></div>
+<div class="box">
+  <h1 id="shop">ร้านยามุมยาเภสัช</h1>
+  <div class="tabs">
+    <button data-tab="points">เช็คแต้ม</button>
+    <button data-tab="history">ประวัติยาของฉัน</button>
+    <button data-tab="drugs">ค้นหาวิธีใช้ยา</button>
+  </div>
+  <div id="view"></div>
+</div>
 <script>
 const TIER = { member: 'สมาชิก', silver: 'ซิลเวอร์', gold: 'โกลด์', platinum: 'แพลทินัม' };
-const box = document.getElementById('box');
+const view = document.getElementById('view');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const n = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
-let shop = 'ร้านยามุมยาเภสัช', timer;
+const n = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+const dateTh = s => s ? new Date(s.replace(' ', 'T')).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
+// ข้อความในฉลากยาบางตัวมีเครื่องหมาย markdown (** #) — ตัดออกให้อ่านง่าย
+const clean = s => String(s ?? '').replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+let idleTimer, current = '';
 
-function form(msg = '') {
-  clearTimeout(timer);
-  box.innerHTML = `<h1>${esc(shop)}</h1><div class="muted">เช็คแต้มสะสมสมาชิก — ใส่เบอร์โทรศัพท์</div>
-    <input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autofocus>
-    <div class="pad">${[1,2,3,4,5,6,7,8,9,'ลบ',0,'ล้าง'].map(k => `<button data-k="${k}">${k}</button>`).join('')}</div>
-    <button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
-  const ph = document.getElementById('ph');
-  box.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
-    const k = b.dataset.k;
-    ph.value = k === 'ลบ' ? ph.value.slice(0, -1) : k === 'ล้าง' ? '' : (ph.value + k).slice(0, 10);
-  });
-  ph.onkeydown = e => { if (e.key === 'Enter') check(ph.value); };
-  document.getElementById('go').onclick = () => check(ph.value);
+async function api(path, body) {
+  const res = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const d = await res.json().catch(() => ({ error: 'เชื่อมต่อไม่ได้' }));
+  if (!res.ok) throw new Error(d.error || 'เกิดข้อผิดพลาด');
+  return d;
 }
 
-async function check(phone) {
-  const res = await fetch('/api/check?phone=' + encodeURIComponent(phone));
-  const d = await res.json();
-  if (!res.ok) return form(d.error);
-  box.innerHTML = `<div class="muted">สวัสดีคุณ</div><h1>${esc(d.name)}</h1>
+// ข้อมูลส่วนตัวบนจอ (แต้ม/ประวัติยา) ล้างเองเมื่อไม่มีการใช้งาน
+function armIdle(ms, fn) { clearTimeout(idleTimer); idleTimer = setTimeout(fn, ms); }
+['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { if (idleTimer && current !== 'drugs') armIdle(idleMs, idleFn); }, true));
+let idleMs = 0, idleFn = null;
+function privateScreen(ms, fn) { idleMs = ms; idleFn = fn; armIdle(ms, fn); }
+function publicScreen() { clearTimeout(idleTimer); idleTimer = null; }
+
+function show(tab) {
+  current = tab;
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+  publicScreen();
+  ({ points: pointsForm, history: historyForm, drugs: drugSearch })[tab]();
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => show(b.dataset.tab));
+
+function keypad(fields) {
+  let target = fields[0];
+  fields.forEach(f => ['focus', 'pointerdown', 'click'].forEach(ev => f.addEventListener(ev, () => target = f)));
+  view.querySelectorAll('[data-k]').forEach(b => {
+    b.onmousedown = e => e.preventDefault(); // กดปุ่มแล้วช่องที่พิมพ์อยู่ไม่หลุดโฟกัส
+    b.onclick = () => {
+      const k = b.dataset.k, max = +target.maxLength || 10;
+      target.value = k === 'ลบ' ? target.value.slice(0, -1) : k === 'ล้าง' ? '' : (target.value + k).slice(0, max);
+      if (target === fields[0] && fields[1] && target.value.length >= 10) { target = fields[1]; fields[1].focus(); }
+    };
+  });
+}
+const padHtml = `<div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 'ลบ', 0, 'ล้าง'].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`;
+
+// ---------- เช็คแต้ม ----------
+function pointsForm(msg = '') {
+  view.innerHTML = `<div class="muted center">ใส่เบอร์โทรศัพท์เพื่อดูแต้มสะสม</div>
+    <input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+    ${padHtml}<button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
+  const ph = view.querySelector('#ph');
+  keypad([ph]); ph.focus();
+  const go = () => checkPoints(ph.value);
+  ph.onkeydown = e => { if (e.key === 'Enter') go(); };
+  view.querySelector('#go').onclick = go;
+}
+
+async function checkPoints(phone) {
+  let d;
+  try { d = await api('check?phone=' + encodeURIComponent(phone)); } catch (e) { return pointsForm(e.message); }
+  view.innerHTML = `<div class="center"><div class="muted">สวัสดีคุณ</div><h2>${esc(d.name)}</h2>
     <div><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
     <div class="pts">${n(d.points)}</div><div class="muted">แต้มสะสม</div>
     ${d.benefit ? `<p>สิทธิพิเศษ: ${esc(d.benefit)}</p>` : ''}
-    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ฿${n(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}
+    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ฿${n(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}</div>
     <div style="margin-top:14px">${d.rewards.map(r => `<div class="rw ${d.points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}</span><b>${n(r.Points)} แต้ม</b></div>`).join('')}</div>
-    <p class="muted">แจ้งพนักงานเพื่อแลกของรางวัล</p><button class="go" onclick="form()">เสร็จสิ้น</button>`;
-  timer = setTimeout(form, 20000);
+    <p class="muted center">แจ้งพนักงานเพื่อแลกของรางวัล</p><button class="go" id="done">เสร็จสิ้น</button>`;
+  view.querySelector('#done').onclick = () => pointsForm();
+  privateScreen(20000, () => pointsForm());
 }
 
-fetch('/api/settings').then(r => r.json()).then(s => { shop = s.ShopName || shop; form(); }).catch(() => form());
+// ---------- ประวัติการจ่ายยา (ต้องใช้ PIN) ----------
+function historyForm(msg = '') {
+  view.innerHTML = `<div class="muted center">ดูประวัติการรับยาของคุณ — ใช้เบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่เคาน์เตอร์)</div>
+    <label class="lb">เบอร์โทรศัพท์</label><input id="ph" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+    <label class="lb">PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
+    ${padHtml}<button class="go" id="go">ดูประวัติยา</button><div class="err">${esc(msg)}</div>`;
+  const ph = view.querySelector('#ph'), pin = view.querySelector('#pin');
+  keypad([ph, pin]); ph.focus();
+  const go = () => loadHistory(ph.value, pin.value);
+  pin.onkeydown = ph.onkeydown = e => { if (e.key === 'Enter') go(); };
+  view.querySelector('#go').onclick = go;
+}
+
+let hist = null, histMode = 'drugs';
+async function loadHistory(phone, pin) {
+  try { hist = await api('my/history', { phone, pin }); } catch (e) { return historyForm(e.message); }
+  histMode = 'drugs';
+  renderHistory();
+}
+
+function renderHistory() {
+  privateScreen(90000, logout);
+  const items = hist.items;
+  let body;
+  if (!items.length) body = '<p class="muted center">ยังไม่มีประวัติการรับยา</p>';
+  else if (histMode === 'drugs') {
+    // รวมเป็นรายการยา (ล่าสุดก่อน)
+    const map = new Map();
+    items.forEach(i => {
+      const k = i.ProductId || i.Name;
+      if (!map.has(k)) map.set(k, { ...i, times: 0 });
+      if (!i.Returned) map.get(k).times++;
+    });
+    body = [...map.values()].map(d => `<button class="item" ${d.ProductId ? `data-drug="${d.ProductId}"` : 'disabled'}>
+      <div class="nm">${esc(d.Name)}</div>
+      <div class="sub">ล่าสุด ${dateTh(d.Date)} · ${n(d.Qty)} ${esc(d.Unit || '')}${d.times > 1 ? ` · รับ ${d.times} ครั้ง` : ''}${d.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('');
+  } else {
+    const bills = [];
+    items.forEach(i => { let b = bills[bills.length - 1]; if (!b || b.id !== i.OrderId) bills.push(b = { id: i.OrderId, code: i.Code, date: i.Date, lines: [] }); b.lines.push(i); });
+    body = bills.map(b => `<div class="bill"><div class="bill-h">${dateTh(b.date)} · ${esc(b.code)}</div>
+      ${b.lines.map(i => `<button class="item" ${i.ProductId ? `data-drug="${i.ProductId}"` : 'disabled'}>
+        <div class="nm">${esc(i.Name)}${i.Returned ? '<span class="tag">คืนแล้ว</span>' : ''}</div>
+        <div class="sub">${n(i.Qty)} ${esc(i.Unit || '')}${i.HasInfo ? ' · แตะเพื่อดูวิธีใช้ →' : ''}</div></button>`).join('')}</div>`).join('');
+  }
+  view.innerHTML = `<div class="row-top"><div><div class="muted">ประวัติการรับยาของ</div><h2>คุณ${esc(hist.name)}</h2></div>
+      <button class="chip" id="out">ออก</button></div>
+    <div class="chips"><button class="chip ${histMode === 'drugs' ? 'on' : ''}" data-mode="drugs">ยาของฉัน</button>
+      <button class="chip ${histMode === 'bills' ? 'on' : ''}" data-mode="bills">ตามวันที่ซื้อ</button></div>
+    <div class="list">${body}</div>
+    <div class="note">หน้านี้จะออกจากระบบเองเมื่อไม่มีการใช้งาน 90 วินาที</div>`;
+  view.querySelector('#out').onclick = logout;
+  view.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { histMode = b.dataset.mode; renderHistory(); });
+  view.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug, renderHistory));
+}
+
+function logout() { hist = null; if (current === 'history') historyForm(); }
+
+// ---------- ค้นหาวิธีใช้ยา (ทุกคนใช้ได้) ----------
+let lastQ = '';
+function drugSearch() {
+  view.innerHTML = `<div class="muted center">พิมพ์ชื่อยา ชื่อการค้า หรือชื่อสามัญ (ไทย/อังกฤษ)</div>
+    <input id="q" class="search" placeholder="เช่น พาราเซตามอล, Paracetamol, ยาเขียว" autocomplete="off" value="${esc(lastQ)}">
+    <div class="list" id="res"></div>`;
+  const q = view.querySelector('#q'), res = view.querySelector('#res');
+  let t, seq = 0;
+  const run = async () => {
+    lastQ = q.value.trim();
+    if (lastQ.length < 2) { res.innerHTML = '<p class="muted center">พิมพ์อย่างน้อย 2 ตัวอักษร</p>'; return; }
+    const my = ++seq;
+    let rows;
+    try { rows = await api('drugs?q=' + encodeURIComponent(lastQ)); } catch (e) { res.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    if (my !== seq) return;
+    res.innerHTML = rows.length ? rows.map(r => `<button class="item" data-drug="${r.Id}">
+      <div class="nm">${esc(r.Name)}</div>
+      ${r.Generic ? `<div class="sub">ตัวยา: ${esc(r.Generic)}</div>` : ''}${r.ByUse ? `<div class="sub">พบคำว่า "${esc(lastQ)}" ในสรรพคุณ/วิธีใช้</div>` : ''}
+      <div class="sub">${esc(clean(r.Snippet))}</div></button>`).join('')
+      : '<p class="muted center">ไม่พบยาที่มีข้อมูลวิธีใช้ — สอบถามเภสัชกรได้ที่เคาน์เตอร์</p>';
+    res.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug, drugSearch));
+  };
+  q.oninput = () => { clearTimeout(t); t = setTimeout(run, 300); };
+  q.focus();
+  if (lastQ) run(); else res.innerHTML = '<p class="muted center">ผลการค้นหาจะแสดงที่นี่</p>';
+}
+
+async function drugDetail(id, back) {
+  let d;
+  try { d = await api('drugs/' + id); } catch (e) { view.innerHTML = `<button class="back" id="bk">← กลับ</button><div class="err">${esc(e.message)}</div>`; view.querySelector('#bk').onclick = () => back(); return; }
+  const sec = (title, text, cls = '') => text ? `<div class="sec ${cls}"><h3>${title}</h3><div class="txt">${esc(clean(text))}</div></div>` : '';
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button>
+    <h2>${esc(d.Name)}</h2>${d.Generic ? `<div class="muted">ตัวยา: ${esc(d.Generic)}</div>` : ''}
+    ${sec('สรรพคุณ', d.Property)}${sec('วิธีใช้', d.Using)}${sec('ข้อควรระวัง / คำเตือน', d.Warning, 'warn')}
+    ${!d.Property && !d.Using && !d.Warning ? '<p class="muted">ยังไม่มีข้อมูลวิธีใช้ของยานี้ — สอบถามเภสัชกรได้ที่เคาน์เตอร์</p>' : ''}
+    <div class="note">ข้อมูลนี้เป็นคำแนะนำทั่วไป ให้ใช้ยาตามที่เภสัชกรหรือแพทย์แนะนำและตามฉลากที่ได้รับ หากมีโรคประจำตัว ตั้งครรภ์ หรือแพ้ยา ปรึกษาเภสัชกรก่อนใช้</div>`;
+  view.querySelector('#bk').onclick = () => back();
+  window.scrollTo(0, 0);
+}
+
+fetch('/api/settings').then(r => r.json()).then(s => { if (s.ShopName) document.getElementById('shop').textContent = s.ShopName; }).catch(() => {});
+const fromHash = () => { const h = location.hash.slice(1); return ['points', 'history', 'drugs'].includes(h) ? h : 'points'; };
+window.addEventListener('hashchange', () => { if (fromHash() !== current) show(fromHash()); });
+show(fromHash());
 </script>
 </body>
 </html>

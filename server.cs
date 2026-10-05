@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -125,6 +125,7 @@ static class App
         if (!afterUpdate && !args.Contains("--no-browser")) OpenBrowser(url);
 
         CleanupOldExe();
+        new Thread(() => { try { DrugIndex(); } catch { } }) { IsBackground = true }.Start(); // โหลดข้อมูลยารอไว้ก่อน
         new Thread(UpdateLoop) { IsBackground = true }.Start();
 
         while (true)
@@ -418,7 +419,12 @@ BEGIN
     CreatedAt datetime NOT NULL DEFAULT GETDATE(), IsCancelled bit NOT NULL DEFAULT 0,
     CancelledAt datetime NULL, CancelledBy nvarchar(100) NULL);
   CREATE INDEX IX_Ledger_Customer ON dbo.Ledger(CustomerId);
-END");
+END
+IF OBJECT_ID('dbo.MemberPin') IS NULL
+  CREATE TABLE dbo.MemberPin(
+    CustomerId int NOT NULL PRIMARY KEY, PinHash varchar(100) NOT NULL, Salt varchar(50) NOT NULL,
+    FailCount int NOT NULL DEFAULT 0, LockedUntil datetime NULL,
+    UpdatedAt datetime NOT NULL DEFAULT GETDATE(), UpdatedBy nvarchar(100) NULL);");
         foreach (var kv in DefaultSettings)
             Exec("IF NOT EXISTS(SELECT 1 FROM dbo.Setting WHERE [Key]=@k) INSERT dbo.Setting([Key],[Value]) VALUES(@k,@v)", "@k", kv[0], "@v", kv[1]);
         if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM dbo.Reward")) == 0)
@@ -570,7 +576,17 @@ END");
         return n;
     }
 
-    static string Q(HttpListenerContext ctx, string k) { return (ctx.Request.QueryString[k] ?? "").Trim(); }
+    // อ่าน query string เองเป็น UTF-8 (QueryString ของ HttpListener ถอดรหัสด้วย codepage ของ Windows ทำให้ภาษาไทยเพี้ยน)
+    static string Q(HttpListenerContext ctx, string k)
+    {
+        foreach (var part in ctx.Request.Url.Query.TrimStart('?').Split('&'))
+        {
+            int i = part.IndexOf('=');
+            string name = Uri.UnescapeDataString((i < 0 ? part : part.Substring(0, i)).Replace('+', ' '));
+            if (name == k) return i < 0 ? "" : Uri.UnescapeDataString(part.Substring(i + 1).Replace('+', ' ')).Trim();
+        }
+        return "";
+    }
 
     static void RequirePin(HttpListenerContext ctx, Dictionary<string, string> s)
     {
@@ -614,6 +630,7 @@ END");
             int id = ParseId(seg[1]);
             if (seg[2] == "redeem") return Redeem(s, id, Body(ctx));
             if (seg[2] == "adjust") return Adjust(s, id, Body(ctx));
+            if (seg[2] == "pin") return SetMemberPin(id, Body(ctx));
         }
         if (seg[0] == "orders" && seg.Length == 2) return OrderItems(ParseId(seg[1]));
         if (route == "ledger" && !post) return LedgerList(0, 200);
@@ -625,6 +642,9 @@ END");
         if (route == "rewards" && !post) return Query("SELECT * FROM dbo.Reward ORDER BY IsActive DESC, Points");
         if (route == "rewards" && post) { RequirePin(ctx, s); return SaveReward(Body(ctx)); }
         if (route == "check") return SelfCheck(s, Q(ctx, "phone"));
+        if (route == "drugs") return DrugSearch(Q(ctx, "q"));
+        if (seg[0] == "drugs" && seg.Length == 2) return DrugDetail(ParseId(seg[1]));
+        if (route == "my/history" && post) { var b = Body(ctx); return MyHistory(Str(b, "phone"), Str(b, "pin")); }
         throw new ApiError(404, "ไม่พบ API: " + route);
     }
 
@@ -779,7 +799,8 @@ FROM o WHERE cid=@id ORDER BY d DESC",
             "@id", id, "@pstart", DateTime.ParseExact(s["PointStartDate"], "yyyy-MM-dd", CultureInfo.InvariantCulture),
             "@bpp", (decimal)Num(s, "BahtPerPoint"));
         return new Dictionary<string, object> {
-            { "member", m }, { "orders", orders }, { "ledger", LedgerList(id, 500) } };
+            { "member", m }, { "orders", orders }, { "ledger", LedgerList(id, 500) },
+            { "pin", Query("SELECT UpdatedAt, UpdatedBy, FailCount, LockedUntil FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault() } };
     }
 
     static object OrderItems(int orderId)
@@ -914,12 +935,209 @@ FROM o WHERE d >= @m", "@m", month)[0];
         var rows = MemberRows(s, " AND REPLACE(REPLACE(c.Phone,'-',''),' ','') = @d", "@d", digits);
         if (rows.Count == 0) throw new ApiError(404, "ไม่พบเบอร์นี้ในระบบสมาชิก");
         var r = rows[0];
-        string name = (string)r["FullName"] ?? "";
-        var parts = name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        string masked = parts.Length > 1 ? parts[0] + " " + parts[1].Substring(0, 1) + "." : name;
         return new Dictionary<string, object> {
-            { "name", masked }, { "points", r["Points"] }, { "tier", r["Tier"] }, { "benefit", r["Benefit"] },
+            { "name", MaskName((string)r["FullName"]) }, { "points", r["Points"] }, { "tier", r["Tier"] }, { "benefit", r["Benefit"] },
             { "nextTier", r["NextTier"] }, { "toNextTier", r["ToNextTier"] }, { "spend365", r["Spend365"] },
             { "rewards", Query("SELECT Name, Points FROM dbo.Reward WHERE IsActive=1 ORDER BY Points") } };
+    }
+
+    static string MaskName(string name)
+    {
+        var parts = (name ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length > 1 ? parts[0] + " " + parts[1].Substring(0, 1) + "." : (name ?? "");
+    }
+
+    // ---------- วิธีใช้ยา (ดูได้ทุกคน ไม่ต้องเป็นสมาชิก) ----------
+    // ข้อมูลจากฉลากยาใน CW (ProductLabel: สรรพคุณ/วิธีใช้/คำเตือน) ถ้าไม่มีใช้รายละเอียดสินค้า (Product_Using/Product_Warning)
+
+    static string DrugInfoSql(string where, string top, string extraCols = "")
+    {
+        return @"
+SELECT " + top + @" p.Id, " + extraCols + @" p.Product_Name Name, NULLIF(p.Product_NameEng,'') NameEng,
+  STUFF((SELECT ', ' + g.DrugGenericName FROM " + Cw + @"ProductListDrgGenName g
+         WHERE g.Product_Id=p.Id AND ISNULL(g.IsDelete,0)=0 FOR XML PATH(''), TYPE).value('.','nvarchar(max)'),1,2,'') Generic,
+  NULLIF(LTRIM(RTRIM(pl.Prod_Property)),'') Property,
+  COALESCE(NULLIF(LTRIM(RTRIM(pl.Prod_Using)),''), NULLIF(LTRIM(RTRIM(CAST(p.Product_Using AS nvarchar(max)))),'')) Using,
+  COALESCE(NULLIF(LTRIM(RTRIM(pl.Prod_Warnign)),''), NULLIF(LTRIM(RTRIM(CAST(p.Product_Warning AS nvarchar(max)))),'')) Warning
+FROM " + Cw + @"Product p
+OUTER APPLY (SELECT TOP 1 * FROM " + Cw + @"ProductLabel x WHERE x.Product_Id=p.Id ORDER BY x.Id DESC) pl
+WHERE ISNULL(p.IsDelete,0)=0 " + where;
+    }
+
+
+    // ชื่อยาใน CW เป็นภาษาอังกฤษ — แปลงชื่อสามัญภาษาไทยที่ลูกค้าคุ้นเป็นชื่ออังกฤษ
+    static readonly string[][] ThaiDrugNames = {
+        new[] { "พาราเซตามอล", "paracetamol" }, new[] { "พาราเซตตามอล", "paracetamol" }, new[] { "อะเซตามิโนเฟน", "paracetamol" },
+        new[] { "ไอบูโพรเฟน", "ibuprofen" }, new[] { "ไอบูโปรเฟน", "ibuprofen" }, new[] { "นาพรอกเซน", "naproxen" },
+        new[] { "ไดโคลฟีแนค", "diclofenac" }, new[] { "ไดโคลฟิแนค", "diclofenac" }, new[] { "เซเลคอกซิบ", "celecoxib" },
+        new[] { "เมล็อกซิแคม", "meloxicam" }, new[] { "มีล็อกซิแคม", "meloxicam" }, new[] { "ไพร็อกซิแคม", "piroxicam" },
+        new[] { "เอทอริคอกซิบ", "etoricoxib" }, new[] { "แอสไพริน", "aspirin" }, new[] { "ออร์เฟนาดรีน", "orphenadrine" },
+        new[] { "โทลเพอริโซน", "tolperisone" }, new[] { "อะม็อกซีซิลลิน", "amoxicillin" }, new[] { "อะมอกซีซิลลิน", "amoxicillin" },
+        new[] { "อะม็อกซี่", "amoxicillin" }, new[] { "ดอกซีไซคลิน", "doxycycline" }, new[] { "ไซโปรฟลอกซาซิน", "ciprofloxacin" },
+        new[] { "นอร์ฟลอกซาซิน", "norfloxacin" }, new[] { "เมโทรนิดาโซล", "metronidazole" }, new[] { "อะซิโทรมัยซิน", "azithromycin" },
+        new[] { "ร็อกซิโทรมัยซิน", "roxithromycin" }, new[] { "ไดคล็อกซาซิลลิน", "dicloxacillin" }, new[] { "เซฟาเลกซิน", "cephalexin" },
+        new[] { "คลอเฟนิรามีน", "chlorpheniramine" }, new[] { "คลอร์เฟนิรามีน", "chlorpheniramine" }, new[] { "เซทิริซีน", "cetirizine" },
+        new[] { "ลอราทาดีน", "loratadine" }, new[] { "เดสลอราทาดีน", "desloratadine" }, new[] { "เฟกโซเฟนาดีน", "fexofenadine" },
+        new[] { "เลโวเซทิริซีน", "levocetirizine" }, new[] { "บรอมเฮกซีน", "bromhexine" }, new[] { "แอมบรอกซอล", "ambroxol" },
+        new[] { "คาร์โบซิสเทอีน", "carbocisteine" }, new[] { "เด็กซ์โทรเมทอร์แฟน", "dextromethorphan" }, new[] { "กัวเฟนิซิน", "guaifenesin" },
+        new[] { "ซูโดอีเฟดรีน", "pseudoephedrine" }, new[] { "โอเมพราโซล", "omeprazole" }, new[] { "แลนโซพราโซล", "lansoprazole" },
+        new[] { "ฟาโมทิดีน", "famotidine" }, new[] { "ดอมเพอริโดน", "domperidone" }, new[] { "ไซเมทิโคน", "simethicone" },
+        new[] { "ลอเปอราไมด์", "loperamide" }, new[] { "ไฮออสซีน", "hyoscine" }, new[] { "บิสาโคดิล", "bisacodyl" },
+        new[] { "ไบซาโคดิล", "bisacodyl" }, new[] { "เมทฟอร์มิน", "metformin" }, new[] { "กลิพิไซด์", "glipizide" },
+        new[] { "แอมโลดิปีน", "amlodipine" }, new[] { "ลอซาร์แทน", "losartan" }, new[] { "เอนาลาพริล", "enalapril" },
+        new[] { "ซิมวาสแตติน", "simvastatin" }, new[] { "อะทอร์วาสแตติน", "atorvastatin" }, new[] { "คลอทริมาโซล", "clotrimazole" },
+        new[] { "คีโตโคนาโซล", "ketoconazole" }, new[] { "ไตรแอมซิโนโลน", "triamcinolone" }, new[] { "เบตาเมทาโซน", "betamethasone" },
+        new[] { "ไฮโดรคอร์ติโซน", "hydrocortisone" }, new[] { "อะไซโคลเวียร์", "acyclovir" }, new[] { "เพรดนิโซโลน", "prednisolone" },
+        new[] { "มิวพิโรซิน", "mupirocin" }, new[] { "วิตามินซี", "vitamin c" }, new[] { "ธาตุเหล็ก", "ferrous" },
+        new[] { "กรดโฟลิก", "folic" }, new[] { "แคลเซียม", "calcium" }, new[] { "สังกะสี", "zinc" },
+        new[] { "ไดเมนไฮดริเนต", "dimenhydrinate" }, new[] { "เบตาฮีสทีน", "betahistine" }, new[] { "ฟลูนาริซีน", "flunarizine" },
+    };
+
+    static List<string> ThaiAliases(string q)
+    {
+        var terms = new List<string>();
+        if (q.Length < 3) return terms;
+        foreach (var a in ThaiDrugNames)
+            if ((a[0].StartsWith(q) || q.StartsWith(a[0])) && !terms.Contains(a[1])) terms.Add(a[1]);
+        return terms.Take(4).ToList();
+    }
+
+    static object DrugSearch(string q)
+    {
+        if (q.Length < 2) throw new ApiError(400, "พิมพ์ชื่อยาอย่างน้อย 2 ตัวอักษร");
+        if (q.Length > 60) q = q.Substring(0, 60);
+        var names = new List<string> { q.ToLowerInvariant() };
+        names.AddRange(ThaiAliases(q));
+        // อันดับ: ชื่อขึ้นต้นด้วยคำค้น > ชื่อ/ตัวยาตรง > พบในสรรพคุณหรือวิธีใช้ (เช่นค้น "ลดไข้")
+        var hits = new List<KeyValuePair<int, Dictionary<string, object>>>();
+        foreach (var d in DrugIndex())
+        {
+            string nameKey = (string)d["_names"];
+            int rank;
+            if (((string)d["Name"]).StartsWith(q, StringComparison.OrdinalIgnoreCase)) rank = 0;
+            else if (names.Any(n => nameKey.Contains(n)) || (string)d["_barcode"] == q) rank = 1;
+            else if (((string)d["_text"]).Contains(names[0])) rank = 2;
+            else continue;
+            hits.Add(new KeyValuePair<int, Dictionary<string, object>>(rank, d));
+        }
+        return hits.OrderBy(h => h.Key).ThenBy(h => (string)h.Value["Name"], StringComparer.OrdinalIgnoreCase).Take(40)
+            .Select(h =>
+            {
+                string u = (string)h.Value["Using"] ?? (string)h.Value["Property"] ?? "";
+                return new Dictionary<string, object> {
+                    { "Id", h.Value["Id"] }, { "Name", h.Value["Name"] }, { "NameEng", h.Value["NameEng"] }, { "Generic", h.Value["Generic"] },
+                    { "Snippet", u.Length > 110 ? u.Substring(0, 110) + "…" : u }, { "ByUse", h.Key == 2 } };
+            }).ToList();
+    }
+
+    // โหลดข้อมูลยาทั้งหมดไว้ในหน่วยความจำ (~8,000 รายการ) ค้นหาได้ทันที รีเฟรชจาก CW ทุก 10 นาที
+    static List<Dictionary<string, object>> DrugCache;
+    static DateTime DrugCacheAt;
+    static readonly object DrugCacheLock = new object();
+
+    static List<Dictionary<string, object>> DrugIndex()
+    {
+        lock (DrugCacheLock)
+        {
+            if (DrugCache != null && DateTime.Now - DrugCacheAt < TimeSpan.FromMinutes(10)) return DrugCache;
+            var rows = Query("SELECT * FROM (" + DrugInfoSql("", "",
+                "ISNULL(p.Product_LabelName,'') LabelName, ISNULL(p.BarCode,'') BarCode,") +
+                ") d WHERE d.Using IS NOT NULL OR d.Property IS NOT NULL");
+            foreach (var r in rows)
+            {
+                r["_names"] = string.Join("\n", (string)r["Name"], (string)r["LabelName"], (string)r["NameEng"] ?? "", (string)r["Generic"] ?? "").ToLowerInvariant();
+                r["_text"] = string.Join("\n", (string)r["Property"] ?? "", (string)r["Using"] ?? "").ToLowerInvariant();
+                r["_barcode"] = r["BarCode"];
+            }
+            DrugCache = rows;
+            DrugCacheAt = DateTime.Now;
+            return rows;
+        }
+    }
+
+    static object DrugDetail(int id)
+    {
+        var rows = Query(DrugInfoSql(" AND p.Id=@id", "TOP 1"), "@id", id);
+        if (rows.Count == 0) throw new ApiError(404, "ไม่พบข้อมูลยา");
+        return rows[0];
+    }
+
+    // ---------- ประวัติการจ่ายยา (ลูกค้าดูเองด้วย เบอร์โทร + PIN ที่พนักงานตั้งให้) ----------
+
+    const int PinLockAfter = 5, PinBlockAfter = 10;
+
+    static string HashPin(string pin, string salt)
+    {
+        using (var kdf = new System.Security.Cryptography.Rfc2898DeriveBytes(pin, Convert.FromBase64String(salt), 20000))
+            return Convert.ToBase64String(kdf.GetBytes(32));
+    }
+
+    static object SetMemberPin(int id, Dictionary<string, object> b)
+    {
+        string pin = Str(b, "pin"), staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM " + Cw + "Customer WHERE Id=@id", "@id", id)) == 0) throw new ApiError(404, "ไม่พบสมาชิก");
+        if (pin.Length == 0)
+        {
+            Exec("DELETE FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id);
+            return new Dictionary<string, object> { { "ok", true } };
+        }
+        if (!Regex.IsMatch(pin, "^[0-9]{4,6}$")) throw new ApiError(400, "PIN ต้องเป็นตัวเลข 4-6 หลัก");
+        if (Regex.IsMatch(pin, @"^(\d)\1+$") || "0123456789".Contains(pin) || "9876543210".Contains(pin))
+            throw new ApiError(400, "PIN เดาง่ายเกินไป (เช่น 1111, 1234) กรุณาเลือกใหม่");
+        var saltBytes = new byte[16];
+        using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(saltBytes);
+        string salt = Convert.ToBase64String(saltBytes);
+        Exec(@"DELETE FROM dbo.MemberPin WHERE CustomerId=@id;
+INSERT dbo.MemberPin(CustomerId,PinHash,Salt,UpdatedBy) VALUES(@id,@h,@s,@by)",
+            "@id", id, "@h", HashPin(pin, salt), "@s", salt, "@by", Trunc(staff, 100));
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    static object MyHistory(string phone, string pin)
+    {
+        string digits = Regex.Replace(phone, "[^0-9]", "");
+        if (digits.Length < 9 || pin.Length == 0) throw new ApiError(400, "กรุณาใส่เบอร์โทรและ PIN");
+        const string wrong = "เบอร์โทรหรือ PIN ไม่ถูกต้อง";
+        // เบอร์เดียวอาจมีหลายคนในครอบครัว — หาคนที่ PIN ตรง
+        var cands = Query(@"SELECT c.Id, c.FullName, m.PinHash, m.Salt, m.FailCount, m.LockedUntil
+FROM " + Cw + @"Customer c JOIN dbo.MemberPin m ON m.CustomerId=c.Id
+WHERE ISNULL(c.IsDelete,0)=0 AND REPLACE(REPLACE(c.Phone,'-',''),' ','') = @d", "@d", digits);
+        if (cands.Count == 0) throw new ApiError(403, wrong + " (ถ้ายังไม่มี PIN ติดต่อพนักงานเพื่อตั้ง PIN)");
+        Dictionary<string, object> who = null;
+        lock (WriteLock)
+        {
+            foreach (var c in cands)
+            {
+                if (Convert.ToInt32(c["FailCount"]) >= PinBlockAfter) continue;
+                if (c["LockedUntil"] != null && DateTime.Parse((string)c["LockedUntil"], CultureInfo.InvariantCulture) > DateTime.Now) continue;
+                if (HashPin(pin, (string)c["Salt"]) == (string)c["PinHash"]) { who = c; break; }
+            }
+            if (who == null)
+            {
+                foreach (var c in cands)
+                    Exec(@"UPDATE dbo.MemberPin SET FailCount=FailCount+1,
+  LockedUntil = CASE WHEN (FailCount+1) % @lock = 0 THEN DATEADD(minute,30,GETDATE()) ELSE LockedUntil END
+WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
+                int fails = cands.Min(c => Convert.ToInt32(c["FailCount"])) + 1;
+                if (fails >= PinBlockAfter) throw new ApiError(403, "ใส่ PIN ผิดเกินกำหนด — ติดต่อพนักงานเพื่อตั้ง PIN ใหม่");
+                bool locked = cands.All(c => c["LockedUntil"] != null &&
+                    DateTime.Parse((string)c["LockedUntil"], CultureInfo.InvariantCulture) > DateTime.Now) || fails % PinLockAfter == 0;
+                throw new ApiError(403, locked ? "ใส่ PIN ผิดหลายครั้ง กรุณารอ 30 นาที หรือติดต่อพนักงาน" : wrong);
+            }
+            Exec("UPDATE dbo.MemberPin SET FailCount=0, LockedUntil=NULL WHERE CustomerId=@id", "@id", who["Id"]);
+        }
+
+        var items = Query(@"
+SELECT TOP 500 o.Id OrderId, o.Order_Code Code, o.Date_Order Date, oi.Product_Id ProductId,
+  ISNULL(NULLIF(oi.InvoiceItemName,''), p.Product_Name) Name, oi.Qty, oi.Unit_Name Unit,
+  CASE WHEN EXISTS(SELECT 1 FROM " + Cw + "ProductBackItem bi JOIN " + Cw + @"ProductBack pb ON pb.Id=bi.ProductBack_Id
+       WHERE bi.OrderItem_Id=oi.Id AND ISNULL(pb.IsCancel,0)=0 AND pb.ProductBack_Status=2) THEN 1 ELSE 0 END Returned,
+  CASE WHEN LEN(CAST(ISNULL(p.Product_Using,'') AS nvarchar(max))) > 0 OR EXISTS(SELECT 1 FROM " + Cw + @"ProductLabel pl
+       WHERE pl.Product_Id=oi.Product_Id AND (LEN(pl.Prod_Using) > 0 OR LEN(pl.Prod_Property) > 0)) THEN 1 ELSE 0 END HasInfo
+FROM " + Cw + "[Order] o JOIN " + Cw + "OrderItem oi ON oi.Order_Id=o.Id LEFT JOIN " + Cw + @"Product p ON p.Id=oi.Product_Id
+WHERE o.Customer_Id=@cid AND ISNULL(o.IsOrderCancel,0)=0 AND o.Order_Status=2 AND ISNULL(o.IsDelete,0)=0
+ORDER BY o.Date_Order DESC, oi.Id", "@cid", who["Id"]);
+        return new Dictionary<string, object> { { "name", MaskName((string)who["FullName"]) }, { "items", items } };
     }
 }
