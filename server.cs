@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.8.2")]
+[assembly: System.Reflection.AssemblyVersion("1.9.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -47,6 +47,8 @@ static class App
         new[] { "StaffPin", "" },
         new[] { "AutoUpdate", "1" },
         new[] { "PointSource", "cw" },
+        new[] { "CloudUrl", "" },
+        new[] { "CloudKey", "" },
     };
 
     // โปรแกรมทำงานเบื้องหลัง มีไอคอนที่ถาดระบบ (มุมขวาล่าง) แทนหน้าต่างดำ — ปิดผิดไม่ได้ ปิดจากเมนูไอคอนเท่านั้น
@@ -123,6 +125,7 @@ static class App
 
         CleanupOldExe();
         new Thread(UpdateLoop) { IsBackground = true }.Start();
+        new Thread(CloudLoop) { IsBackground = true }.Start();
         new Thread(() =>
         {
             while (true)
@@ -701,6 +704,8 @@ BEGIN
     CreatedAt datetime NOT NULL DEFAULT GETDATE(), DecidedAt datetime NULL, DecidedBy nvarchar(100) NULL);
   CREATE INDEX IX_CustomerEdit_Status ON dbo.CustomerEdit(Status, CustomerId);
 END
+IF OBJECT_ID('dbo.CloudPushed') IS NULL
+  CREATE TABLE dbo.CloudPushed(Kind char(1) NOT NULL, Id int NOT NULL, Hash varchar(64) NOT NULL, PRIMARY KEY(Kind, Id));
 IF OBJECT_ID('dbo.MemberPin') IS NULL
   CREATE TABLE dbo.MemberPin(
     CustomerId int NOT NULL PRIMARY KEY, PinHash varchar(100) NOT NULL, Salt varchar(50) NOT NULL,
@@ -824,28 +829,28 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
     }
 
+    // ใช้ไฟล์ในโฟลเดอร์ wwwroot ถ้ามี (สำหรับแก้หน้าเว็บ) ไม่งั้นใช้ไฟล์ที่ฝังอยู่ใน exe
+    static byte[] WebFile(string name)
+    {
+        string full = Path.GetFullPath(Path.Combine(WebRoot, name));
+        if (full.StartsWith(WebRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
+            return File.ReadAllBytes(full);
+        if (name.Contains("/") || name.Contains("\\")) return null;
+        using (var st = typeof(App).Assembly.GetManifestResourceStream("www." + name))
+        {
+            if (st == null) return null;
+            var ms = new MemoryStream();
+            st.CopyTo(ms);
+            return ms.ToArray();
+        }
+    }
+
     static void ServeStatic(HttpListenerContext ctx, string path)
     {
         if (path == "/") path = "/index.html";
         if (path == "/check") path = "/check.html";
         string name = Uri.UnescapeDataString(path).TrimStart('/');
-        string full = Path.GetFullPath(Path.Combine(WebRoot, name));
-        byte[] bytes = null;
-        // ใช้ไฟล์ในโฟลเดอร์ wwwroot ถ้ามี (สำหรับแก้หน้าเว็บ) ไม่งั้นใช้ไฟล์ที่ฝังอยู่ใน exe
-        if (full.StartsWith(WebRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
-            bytes = File.ReadAllBytes(full);
-        else if (!name.Contains("/") && !name.Contains("\\"))
-        {
-            using (var st = typeof(App).Assembly.GetManifestResourceStream("www." + name))
-            {
-                if (st != null)
-                {
-                    var ms = new MemoryStream();
-                    st.CopyTo(ms);
-                    bytes = ms.ToArray();
-                }
-            }
-        }
+        byte[] bytes = WebFile(name);
         if (bytes == null)
         {
             ctx.Response.StatusCode = 404;
@@ -959,6 +964,9 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         }
         if (route == "points/recalc" && !post) return PointRecalc(s);
         if (route == "drugnames") return DrugNames();
+        if (route == "cloud/status") return CloudStatus();
+        if (route == "cloud/sync" && post) { RequirePin(ctx, s); return CloudSync(Q(ctx, "full") == "1"); }
+        if (route == "cloud/newkey" && post) { RequirePin(ctx, s); return CloudNewKey(); }
         if (route == "rewards" && !post) return Query("SELECT * FROM dbo.Reward ORDER BY IsActive DESC, Points");
         if (route == "rewards" && post) { RequirePin(ctx, s); return SaveReward(Body(ctx)); }
         if (route == "check") return SelfCheck(s, Q(ctx, "phone"));
@@ -992,8 +1000,9 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
     static Dictionary<string, object> PublicSettings(Dictionary<string, string> s)
     {
         var d = new Dictionary<string, object>();
-        foreach (var kv in s) if (kv.Key != "StaffPin") d[kv.Key] = kv.Value;
+        foreach (var kv in s) if (kv.Key != "StaffPin" && kv.Key != "CloudKey") d[kv.Key] = kv.Value;
         d["HasPin"] = s["StaffPin"].Length > 0;
+        d["HasCloudKey"] = s["CloudKey"].Length > 0;
         d["CwPoint"] = CwPointConfig();
         d["CwDatabase"] = Cw.Split(']')[0].TrimStart('[');
         return d;
@@ -1007,6 +1016,14 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
             if (!b.ContainsKey(k)) continue;
             string v = Str(b, k);
             if (k == "StaffPin" && v == "__keep__") continue;
+            if (k == "CloudKey") continue; // สร้างด้วยปุ่ม "สร้างคีย์ใหม่" เท่านั้น
+            if (k == "CloudUrl")
+            {
+                v = v.TrimEnd('/');
+                if (v.Length > 0 && !Regex.IsMatch(v, @"^https://[a-z0-9.-]+(:\d+)?$", RegexOptions.IgnoreCase))
+                    throw new ApiError(400, "ที่อยู่เว็บออนไลน์ต้องเป็น https://ชื่อโดเมน");
+                if (v != Settings()["CloudUrl"]) Exec("DELETE FROM dbo.CloudPushed"); // ที่ใหม่ ส่งข้อมูลทั้งหมดใหม่
+            }
             if (k == "BahtPerPoint" || k.StartsWith("Tier"))
             {
                 double n;
@@ -1845,5 +1862,216 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
     {
         lock (Sessions) Sessions.Remove(BearerToken(ctx));
         return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    // ---------- หน้าสมาชิกออนไลน์ (Cloudflare Worker + D1) ให้ลูกค้าดูได้แม้คอมร้านปิด ----------
+    // ทุก 5 นาที: รับคำขอแก้ไข/เปลี่ยน PIN ที่ลูกค้าทำออนไลน์ → แล้วส่งข้อมูลสมาชิกที่มี PIN ขึ้นไป (ส่งเฉพาะคนที่ข้อมูลเปลี่ยน)
+    // สมาชิกที่ไม่มี PIN ไม่ถูกส่งขึ้นออนไลน์
+
+    static readonly object CloudLock = new object();
+    static string CloudLastOk, CloudLastError;
+    static int CloudMembers, CloudLastPushed;
+
+    static void CloudLoop()
+    {
+        Thread.Sleep(20000);
+        while (true)
+        {
+            try { CloudSync(false); }
+            catch (Exception e) { CloudLastError = e.Message; }
+            Thread.Sleep(TimeSpan.FromMinutes(5));
+        }
+    }
+
+    static object CloudStatus()
+    {
+        var s = Settings();
+        return new Dictionary<string, object> {
+            { "enabled", s["CloudUrl"].Length > 0 && s["CloudKey"].Length > 0 }, { "url", s["CloudUrl"] },
+            { "lastOk", CloudLastOk }, { "lastError", CloudLastError }, { "members", CloudMembers }, { "lastPushed", CloudLastPushed } };
+    }
+
+    // สร้างคีย์ใหม่ (ต้องนำไปใส่เป็น Secret SYNC_KEY ใน Cloudflare Worker)
+    static object CloudNewKey()
+    {
+        var b = new byte[32];
+        using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(b);
+        string key = BitConverter.ToString(b).Replace("-", "").ToLowerInvariant();
+        Exec("UPDATE dbo.Setting SET [Value]=@v WHERE [Key]='CloudKey'; IF @@ROWCOUNT=0 INSERT dbo.Setting VALUES('CloudKey',@v); DELETE FROM dbo.CloudPushed", "@v", key);
+        Log("สร้างคีย์ซิงก์ออนไลน์ใหม่");
+        return new Dictionary<string, object> { { "key", key } };
+    }
+
+    static object CloudCall(string url, string key, object body)
+    {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)768;
+        var req = (HttpWebRequest)WebRequest.Create(url);
+        req.Method = body == null ? "GET" : "POST";
+        req.Headers["Authorization"] = "Bearer " + key;
+        req.UserAgent = "YaMumMember/" + AppVersion;
+        req.Timeout = req.ReadWriteTimeout = 120000;
+        if (body != null)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(Json.Serialize(body));
+            req.ContentType = "application/json; charset=utf-8";
+            req.ContentLength = data.Length;
+            using (var st = req.GetRequestStream()) st.Write(data, 0, data.Length);
+        }
+        try
+        {
+            using (var res = (HttpWebResponse)req.GetResponse())
+            using (var sr = new StreamReader(res.GetResponseStream(), Encoding.UTF8))
+                return Json.DeserializeObject(sr.ReadToEnd());
+        }
+        catch (WebException e)
+        {
+            string msg = e.Message;
+            var res = e.Response as HttpWebResponse;
+            if (res != null)
+            {
+                using (var sr = new StreamReader(res.GetResponseStream(), Encoding.UTF8)) msg = sr.ReadToEnd();
+                if ((int)res.StatusCode == 401) msg = "คีย์ซิงก์ไม่ตรงกับใน Cloudflare (SYNC_KEY)";
+                else if (msg.Length > 200 || msg.StartsWith("<")) msg = "HTTP " + (int)res.StatusCode;
+            }
+            throw new Exception("ซิงก์ออนไลน์ไม่สำเร็จ: " + msg);
+        }
+    }
+
+    static string Sha256Hex(string s)
+    {
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(s))).Replace("-", "");
+    }
+
+    // รับคำขอแก้ไขจากหน้าออนไลน์ → เป็นคำขอรออนุมัติ (เหมือนส่งจากหน้าร้าน)
+    static void ImportOnlineEdit(int cid, Dictionary<string, object> d)
+    {
+        string key = Convert.ToString(d["Field"]);
+        EditField(key);
+        string v = NormalizeEdit(key, Convert.ToString(d["NewValue"]), false);
+        var cur = CustomerValues(cid);
+        if (v == cur[key]) return;
+        DateTime at;
+        if (!DateTime.TryParse(Convert.ToString(d["CreatedAt"]), CultureInfo.InvariantCulture, DateTimeStyles.None, out at)) at = DateTime.Now;
+        lock (WriteLock)
+        {
+            Exec("UPDATE dbo.CustomerEdit SET Status='superseded', DecidedAt=GETDATE() WHERE CustomerId=@c AND Field=@f AND Status='pending'", "@c", cid, "@f", key);
+            Exec(@"INSERT dbo.CustomerEdit(CustomerId,Field,OldValue,NewValue,Source,Status,Note,CreatedAt)
+VALUES(@c,@f,@o,@n,'member','pending',@note,@at)", "@c", cid, "@f", key, "@o", cur[key], "@n", v,
+                "@note", Trunc(Convert.ToString(d.ContainsKey("Note") ? d["Note"] : "") + " (ส่งจากออนไลน์)", 300), "@at", at);
+        }
+        Log("สมาชิก #" + cid + " ส่งคำขอแก้ไขข้อมูลจากออนไลน์: " + EditField(key)[2]);
+    }
+
+    static object CloudSync(bool full)
+    {
+        var s = Settings();
+        string url = s["CloudUrl"].TrimEnd('/'), key = s["CloudKey"];
+        if (url.Length == 0 || key.Length == 0) throw new ApiError(400, "ยังไม่ได้ตั้งค่าหน้าสมาชิกออนไลน์");
+        lock (CloudLock)
+        {
+            try
+            {
+                if (full) Exec("DELETE FROM dbo.CloudPushed");
+
+                // 1) รับสิ่งที่ลูกค้าทำออนไลน์
+                var pulled = (Dictionary<string, object>)CloudCall(url + "/sync/pull", key, null);
+                var ack = new List<int>();
+                foreach (Dictionary<string, object> it in (System.Collections.IEnumerable)pulled["items"])
+                {
+                    int id = Convert.ToInt32(it["id"]), cid = Convert.ToInt32(it["cid"]);
+                    var d = (Dictionary<string, object>)it["data"];
+                    try
+                    {
+                        if ((string)it["kind"] == "pin")
+                        {
+                            DateTime at = DateTime.ParseExact((string)d["pin_at"], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                            int n = Exec(@"UPDATE dbo.MemberPin SET PinHash=@h, Salt=@s, UpdatedAt=@at, UpdatedBy=N'ลูกค้าเปลี่ยนเอง (ออนไลน์)', FailCount=0, LockedUntil=NULL
+WHERE CustomerId=@c AND UpdatedAt < @at", "@h", (string)d["hash"], "@s", (string)d["salt"], "@at", at, "@c", cid);
+                            if (n > 0) { EndSessions(cid); Log("สมาชิก #" + cid + " เปลี่ยน PIN เอง (ออนไลน์)"); }
+                        }
+                        else if ((string)it["kind"] == "edit") ImportOnlineEdit(cid, d);
+                        ack.Add(id);
+                    }
+                    catch (ApiError e) { Log("ข้ามรายการออนไลน์ #" + id + ": " + e.Message); ack.Add(id); }
+                }
+                if (ack.Count > 0) CloudCall(url + "/sync/ack", key, new Dictionary<string, object> { { "ids", ack } });
+
+                // 2) ส่งข้อมูลสมาชิกที่มี PIN ขึ้นไป (เฉพาะที่เปลี่ยน)
+                var pushed = new Dictionary<string, string>();
+                foreach (var r in Query("SELECT Kind, Id, Hash FROM dbo.CloudPushed")) pushed[(string)r["Kind"] + r["Id"]] = (string)r["Hash"];
+                var rows = Query(@"SELECT m.CustomerId, m.PinHash, m.Salt, m.UpdatedAt, m.FailCount, c.Phone
+FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL(c.IsDelete,0)=0");
+                var members = new List<object>();
+                var all = new List<int>();
+                var drugIds = new HashSet<int>();
+                var newHash = new List<object[]>();
+                foreach (var r in rows)
+                {
+                    int cid = Convert.ToInt32(r["CustomerId"]);
+                    string phone = Regex.Replace((string)r["Phone"] ?? "", "[^0-9]", "");
+                    if (phone.Length < 9) continue; // ไม่มีเบอร์ เข้าสู่ระบบไม่ได้อยู่แล้ว
+                    Dictionary<string, object> data;
+                    try { data = MyProfile(s, cid); } catch (ApiError) { continue; }
+                    all.Add(cid);
+                    foreach (Dictionary<string, object> i in (List<Dictionary<string, object>>)data["Items"])
+                        if (i["ProductId"] != null && Convert.ToInt32(i["HasInfo"]) == 1) drugIds.Add(Convert.ToInt32(i["ProductId"]));
+                    var m = new Dictionary<string, object> {
+                        { "cid", cid }, { "phone", phone }, { "pin_hash", r["PinHash"] }, { "salt", r["Salt"] },
+                        { "pin_at", r["UpdatedAt"] }, { "blocked", Convert.ToInt32(r["FailCount"]) >= PinBlockAfter }, { "data", data } };
+                    string h = Sha256Hex(Json.Serialize(m));
+                    string old;
+                    if (pushed.TryGetValue("m" + cid, out old) && old == h) continue;
+                    members.Add(m);
+                    newHash.Add(new object[] { "m", cid, h });
+                }
+                var drugs = new List<object>();
+                foreach (int id in drugIds)
+                {
+                    object d;
+                    try { d = DrugDetail(id); } catch (ApiError) { continue; }
+                    string h = Sha256Hex(Json.Serialize(d)), old;
+                    if (pushed.TryGetValue("d" + id, out old) && old == h) continue;
+                    drugs.Add(new Dictionary<string, object> { { "id", id }, { "data", d } });
+                    newHash.Add(new object[] { "d", id, h });
+                }
+                var settings = new Dictionary<string, object> { { "ShopName", s["ShopName"] }, { "page", Encoding.UTF8.GetString(WebFile("check.html")) } };
+                string sh = Sha256Hex(Json.Serialize(settings)), sold;
+                bool settingsChanged = !(pushed.TryGetValue("s0", out sold) && sold == sh);
+                if (settingsChanged) newHash.Add(new object[] { "s", 0, sh });
+
+                // ส่งเป็นชุด ชุดแรกมีรายชื่อทั้งหมด (ลบคนที่ยกเลิก PIN ออกจากออนไลน์)
+                int batches = Math.Max(1, Math.Max((members.Count + 24) / 25, (drugs.Count + 49) / 50));
+                object result = null;
+                for (int i = 0; i < batches; i++)
+                {
+                    var b = new Dictionary<string, object> {
+                        { "members", members.Skip(i * 25).Take(25).ToList() }, { "drugs", drugs.Skip(i * 50).Take(50).ToList() } };
+                    if (i == 0)
+                    {
+                        b["all"] = all;
+                        b["allDrugs"] = drugIds.ToList();
+                        if (settingsChanged) b["settings"] = settings;
+                    }
+                    result = CloudCall(url + "/sync/push", key, b);
+                }
+                foreach (var h in newHash)
+                    Exec("UPDATE dbo.CloudPushed SET Hash=@h WHERE Kind=@k AND Id=@id; IF @@ROWCOUNT=0 INSERT dbo.CloudPushed(Kind,Id,Hash) VALUES(@k,@id,@h)",
+                        "@k", h[0], "@id", h[1], "@h", h[2]);
+                var res = result as Dictionary<string, object>;
+                CloudMembers = res != null && res.ContainsKey("members") ? Convert.ToInt32(res["members"]) : all.Count;
+                CloudLastPushed = members.Count;
+                CloudLastOk = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                CloudLastError = null;
+                if (members.Count > 0 || ack.Count > 0) Log("ซิงก์ออนไลน์: ส่งสมาชิก " + members.Count + " คน ยา " + drugs.Count + " รายการ รับ " + ack.Count + " รายการ");
+            }
+            catch (Exception e)
+            {
+                CloudLastError = e.Message;
+                Log(e.Message);
+                throw;
+            }
+        }
+        return CloudStatus();
     }
 }

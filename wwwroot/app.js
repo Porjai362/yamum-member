@@ -545,6 +545,16 @@ async function viewSettings() {
       <input name="StaffPin" type="password" placeholder="${s.HasPin ? 'เว้นว่าง = ใช้ PIN เดิม' : 'เว้นว่าง = ไม่ใช้ PIN'}" autocomplete="new-password"></label>
     ${s.HasPin ? '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="clearPin"> ยกเลิกการใช้ PIN</label>' : ''}
   </div></div>
+  <div class="card"><h3>หน้าสมาชิกออนไลน์ (ดูได้แม้ร้านปิด)</h3>
+    <p class="small muted" style="margin-top:0">ส่งข้อมูลสมาชิกที่มี PIN ขึ้น Cloudflare ทุก 5 นาทีที่คอมร้านเปิด — ลูกค้าดูแต้ม/ประวัติยาได้ตลอด 24 ชม.
+      คำขอแก้ไขและการเปลี่ยน PIN ที่ลูกค้าทำออนไลน์จะเข้ามาเมื่อคอมร้านเปิด (วิธีตั้งค่าดู README หัวข้อ "หน้าสมาชิกออนไลน์")</p>
+    <div class="form-grid">
+    ${fld('CloudUrl', 'ที่อยู่เว็บออนไลน์', 'url', 'placeholder="https://member.mumyamember.online"')}
+    <div class="small"><div>คีย์ซิงก์: ${s.HasCloudKey ? '<b>ตั้งไว้แล้ว</b>' : '<b style="color:var(--danger)">ยังไม่ได้สร้าง</b>'}</div><div id="cloudInfo" class="muted">กำลังโหลด…</div></div>
+  </div><div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+    <button type="button" class="btn" id="cloudKey">${s.HasCloudKey ? 'สร้างคีย์ใหม่' : 'สร้างคีย์ซิงก์'}</button>
+    <button type="button" class="btn" id="cloudSync">ซิงก์ตอนนี้</button>
+    <button type="button" class="btn" id="cloudFull">ส่งข้อมูลทั้งหมดใหม่</button></div></div>
   <div class="card"><h3>อัปเดตโปรแกรม</h3><div class="form-grid">
     <label class="f">อัปเดตอัตโนมัติ<select name="AutoUpdate"><option value="1">เปิด — ติดตั้งเองตอนไม่มีคนใช้งาน</option><option value="0">ปิด — แจ้งเตือนอย่างเดียว</option></select></label>
     <div id="updInfo" class="small"></div>
@@ -588,6 +598,28 @@ async function viewSettings() {
     catch (e) { toast(e.message, true); api('update').then(showUpd); }
   };
   $('#updInstall').onclick = installUpdate;
+  const showCloud = c => {
+    $('#cloudInfo').innerHTML = !c.enabled ? 'ยังไม่ได้เปิดใช้ (ใส่ที่อยู่เว็บ + สร้างคีย์ แล้วบันทึก)'
+      : `ซิงก์สำเร็จล่าสุด: ${c.lastOk ? dateTimeTh(c.lastOk) : '-'} · สมาชิกออนไลน์ ${int(c.members)} คน`
+        + (c.lastError ? `<div style="color:var(--danger)">${esc(c.lastError)}</div>` : '');
+  };
+  api('cloud/status').then(showCloud).catch(() => {});
+  const runSync = async full => {
+    try { showCloud(await api('cloud/sync' + (full ? '?full=1' : ''), {})); toast('ซิงก์เรียบร้อย'); }
+    catch (e) { toast(e.message, true); api('cloud/status').then(showCloud); }
+  };
+  $('#cloudSync').onclick = () => runSync(false);
+  $('#cloudFull').onclick = () => runSync(true);
+  $('#cloudKey').onclick = async () => {
+    if (s.HasCloudKey && !confirm('สร้างคีย์ใหม่? คีย์เดิมจะใช้ไม่ได้ ต้องเอาคีย์ใหม่ไปใส่ใน Cloudflare (SYNC_KEY) อีกครั้ง')) return;
+    try {
+      const r = await api('cloud/newkey', {});
+      dialog('คีย์ซิงก์ (SYNC_KEY)', `<div class="small">คัดลอกคีย์นี้ไปใส่ใน Cloudflare → Worker → Settings → Variables and Secrets → เพิ่ม <b>Secret</b> ชื่อ <b>SYNC_KEY</b>
+        <br>คีย์นี้แสดงครั้งเดียว — อย่าส่งให้คนอื่น</div>
+        <input value="${esc(r.key)}" readonly style="width:100%;font-family:monospace;margin-top:8px" onclick="this.select()">`, 'คัดลอกแล้ว', async () => { s.HasCloudKey = true; });
+      try { await navigator.clipboard.writeText(r.key); toast('คัดลอกคีย์แล้ว'); } catch {}
+    } catch (e) { toast(e.message, true); }
+  };
   f.onsubmit = async e => {
     e.preventDefault();
     const body = {};

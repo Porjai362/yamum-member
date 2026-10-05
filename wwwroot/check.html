@@ -116,6 +116,7 @@ async function api(path, body) {
   const d = await res.json().catch(() => ({ error: 'เชื่อมต่อไม่ได้ กรุณาลองใหม่' }));
   if (res.status === 401 && token) { token = me = null; memberLogin(d.error); throw new Error(d.error); }
   if (!res.ok) throw new Error(d.error || 'เกิดข้อผิดพลาด');
+  if (token && d.token) token = d.token; // หน้าออนไลน์ต่ออายุการเข้าสู่ระบบทุกครั้งที่ใช้งาน
   return d;
 }
 
@@ -227,6 +228,7 @@ function renderMe() {
     <div class="chips">${tabs.map(([k, t]) => `<button class="chip ${meTab === k ? 'on' : ''}" data-me="${k}">${t}</button>`).join('')}</div>
     <div id="meBody">${({ drugs: myDrugs, bills: myBills, points: myPoints, rewards: myRewards })[meTab]()}</div>
     <div style="text-align:center;margin-top:16px"><button class="link" id="chpin">เปลี่ยน PIN</button></div>
+    ${m.SyncedAt ? `<div class="sub center" style="margin-top:12px">ข้อมูล ณ ${esc(new Date(m.SyncedAt.replace(' ', 'T')).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }))} น. (อัปเดตเมื่อร้านเปิด)</div>` : ''}
     <div class="note">ข้อมูลเป็นความลับส่วนตัว — กด "ออกจากระบบ" เมื่อใช้เสร็จ (ออกเองเมื่อไม่ได้ใช้งาน ${PUBLIC ? '15 นาที' : '90 วินาที'})</div>`;
   view.querySelector('#out').onclick = logout;
   view.querySelector('#chpin').onclick = changePinForm;
