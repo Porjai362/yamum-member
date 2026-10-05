@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.3.0")]
+[assembly: System.Reflection.AssemblyVersion("1.5.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -48,11 +48,13 @@ static class App
         new[] { "AutoUpdate", "1" },
     };
 
+    // โปรแกรมทำงานเบื้องหลัง มีไอคอนที่ถาดระบบ (มุมขวาล่าง) แทนหน้าต่างดำ — ปิดผิดไม่ได้ ปิดจากเมนูไอคอนเท่านั้น
+    [STAThread]
     static void Main()
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-        Console.OutputEncoding = Encoding.UTF8;
+        System.Windows.Forms.Application.EnableVisualStyles();
 
         Root = AppDomain.CurrentDomain.BaseDirectory;
         WebRoot = Path.GetFullPath(Path.Combine(Root, "wwwroot"));
@@ -66,21 +68,22 @@ static class App
 
         string prefix = Cfg(cfg, "Listen", "http://localhost:8088/");
         string url = prefix.Replace("+", "localhost").Replace("*", "localhost");
-        Console.Title = "ระบบสมาชิก ร้านยามุมยาเภสัช";
-
-        try { InitDb(); }
-        catch (Exception e)
-        {
-            Console.WriteLine("เชื่อมต่อฐานข้อมูลไม่ได้: " + e.Message);
-            Console.WriteLine("ตรวจสอบว่า SQL Server (" + server + ") ทำงานอยู่ และมีฐานข้อมูล " + cwDb + " ของ CW Pharma");
-            Console.WriteLine("ถ้า SQL Server ชื่ออื่น ให้สร้างไฟล์ config.ini ไว้ข้าง exe (ดูตัวอย่างใน README)");
-            Console.WriteLine("กดปุ่มใดก็ได้เพื่อปิด");
-            Console.ReadKey();
-            return;
-        }
-
         var args = Environment.GetCommandLineArgs();
-        bool afterUpdate = args.Contains("--after-update");
+        bool afterUpdate = args.Contains("--after-update"), autostart = args.Contains("--autostart");
+
+        // เปิดเองตอนเปิดเครื่อง: SQL Server อาจยังไม่พร้อม — รอได้สูงสุด 3 นาที
+        for (int attempt = 0; ; attempt++)
+        {
+            try { InitDb(); break; }
+            catch (Exception e)
+            {
+                if (autostart && attempt < 18) { Thread.Sleep(10000); continue; }
+                Log("เชื่อมต่อฐานข้อมูลไม่ได้: " + e.Message);
+                Fatal("เชื่อมต่อฐานข้อมูลไม่ได้\n\n" + e.Message + "\n\nตรวจสอบว่า SQL Server (" + server + ") ทำงานอยู่ และมีฐานข้อมูล " + cwDb +
+                      " ของ CW Pharma\nถ้า SQL Server ชื่ออื่น ให้สร้างไฟล์ config.ini ไว้ข้าง exe (ดูตัวอย่างใน README)");
+                return;
+            }
+        }
         BaseUrl = url;
         UpdateUrl = Cfg(cfg, "UpdateUrl", DefaultUpdateUrl);
 
@@ -102,41 +105,146 @@ static class App
                 }
                 if (inUse)
                 {
-                    // เปิดโปรแกรมไว้อยู่แล้ว — แค่เปิดหน้าเว็บให้ และบอกให้รู้ว่าทำไมหน้าต่างนี้จะปิด
-                    Console.WriteLine("ระบบสมาชิกเปิดอยู่แล้ว (พอร์ต " + new Uri(url).Port + " ถูกใช้งานอยู่)");
-                    Console.WriteLine("  กำลังเปิดหน้าเว็บ " + url);
-                    Console.WriteLine("  ถ้าหาหน้าต่างโปรแกรมเดิมไม่เจอ: เปิด Task Manager แล้ว End task \"YaMumMember\" ก่อน แล้วเปิดใหม่");
-                    Console.WriteLine("  หน้าต่างนี้จะปิดเองใน 10 วินาที");
-                    OpenBrowser(url);
-                    Thread.Sleep(10000);
+                    // เปิดโปรแกรมไว้อยู่แล้ว (ดูไอคอนมุมขวาล่าง) — แค่เปิดหน้าเว็บให้
+                    if (!autostart) OpenBrowser(url);
                     return;
                 }
-                Console.WriteLine("เปิดพอร์ตไม่ได้ (" + prefix + "): " + e.Message);
-                Console.WriteLine("ถ้าใช้ http://+:port/ ต้องรันแบบ Administrator หรือเพิ่ม urlacl ก่อน");
-                Console.ReadKey();
+                Log("เปิดพอร์ตไม่ได้ (" + prefix + "): " + e.Message);
+                Fatal("เปิดพอร์ตไม่ได้ (" + prefix + ")\n\n" + e.Message + "\n\nถ้าใช้ http://+:port/ ต้องรันแบบ Administrator หรือเพิ่ม urlacl ก่อน");
                 return;
             }
         }
-        Console.WriteLine("ระบบสมาชิก ร้านยามุมยาเภสัช  เวอร์ชัน " + AppVersion + (afterUpdate ? "  (อัปเดตแล้ว)" : ""));
-        Console.WriteLine("  ฐานข้อมูล CW : " + server + " / " + cwDb);
-        Console.WriteLine("  ฐานข้อมูลสมาชิก: " + MemberDb);
-        Console.WriteLine("  เปิดเบราว์เซอร์ที่ " + url);
-        Console.WriteLine("  (ปิดหน้าต่างนี้ = ปิดระบบสมาชิก)");
-        if (!afterUpdate && !args.Contains("--no-browser")) OpenBrowser(url);
+        Log("เริ่มทำงาน เวอร์ชัน " + AppVersion + (afterUpdate ? " (อัปเดตแล้ว)" : "") + " · CW: " + server + "/" + cwDb + " · สมาชิก: " + MemberDb + " · " + url);
+        if (!afterUpdate && !autostart && !args.Contains("--no-browser")) OpenBrowser(url);
 
-        StartPublic(Cfg(cfg, "PublicListen", "http://localhost:8090/"));
+        string publicPrefix = Cfg(cfg, "PublicListen", "http://localhost:8090/");
+        StartPublic(publicPrefix);
 
         CleanupOldExe();
         new Thread(() => { try { DrugIndex(); } catch { } }) { IsBackground = true }.Start(); // โหลดข้อมูลยารอไว้ก่อน
         new Thread(UpdateLoop) { IsBackground = true }.Start();
-
-        while (true)
+        new Thread(() =>
         {
-            HttpListenerContext ctx;
-            try { ctx = Listener.GetContext(); }
-            catch { if (Restarting) { Thread.Sleep(Timeout.Infinite); } throw; }
-            ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, false), ctx);
+            while (true)
+            {
+                HttpListenerContext ctx;
+                try { ctx = Listener.GetContext(); }
+                catch { if (Restarting) return; Thread.Sleep(1000); continue; }
+                ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, false), ctx);
+            }
+        }) { IsBackground = true }.Start();
+
+        RunTray(url, publicPrefix, afterUpdate);
+    }
+
+    // ---------- ไอคอนถาดระบบ / เปิดเองตอนเปิดเครื่อง / บันทึกการทำงาน ----------
+
+    static System.Windows.Forms.NotifyIcon Tray;
+    const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run", RunName = "YaMumMember";
+
+    static void RunTray(string url, string publicPrefix, bool afterUpdate)
+    {
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        var open = menu.Items.Add("เปิดหน้าพนักงาน", null, (s, e) => OpenBrowser(url));
+        open.Font = new System.Drawing.Font(open.Font, System.Drawing.FontStyle.Bold);
+        menu.Items.Add("เปิดหน้าลูกค้า (แท็บเล็ตหน้าร้าน)", null, (s, e) => OpenBrowser(url + "check"));
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("เวอร์ชัน " + AppVersion) { Enabled = false });
+        if (PublicListener != null)
+            menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("เว็บไซต์ลูกค้า: " + publicPrefix) { Enabled = false });
+        var auto = new System.Windows.Forms.ToolStripMenuItem("เปิดเองเมื่อเปิดเครื่อง") { Checked = AutoStartEnabled(), CheckOnClick = true };
+        auto.CheckedChanged += (s, e) => SetAutoStart(auto.Checked);
+        menu.Items.Add(auto);
+        menu.Items.Add("ดูบันทึกการทำงาน (log)", null, (s, e) => { try { Process.Start(LogFile); } catch { } });
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("ปิดระบบสมาชิก", null, (s, e) =>
+        {
+            var ok = System.Windows.Forms.MessageBox.Show(
+                "ปิดระบบสมาชิก?\n\nหน้าพนักงาน หน้าลูกค้า และเว็บไซต์ลูกค้าจะใช้ไม่ได้จนกว่าจะเปิดโปรแกรมใหม่",
+                "ระบบสมาชิก", System.Windows.Forms.MessageBoxButtons.YesNo, System.Windows.Forms.MessageBoxIcon.Warning);
+            if (ok != System.Windows.Forms.DialogResult.Yes) return;
+            Log("ปิดโปรแกรมจากเมนู");
+            ExitApp(0);
+        });
+
+        Tray = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = MakeIcon(), Text = "ระบบสมาชิก ยามุมยาเภสัช " + AppVersion, ContextMenuStrip = menu, Visible = true
+        };
+        Tray.DoubleClick += (s, e) => OpenBrowser(url);
+
+        // ครั้งแรกที่เปิด ตั้งให้เปิดเองตอนเปิดเครื่องไว้ก่อน (เอาออกได้จากเมนู)
+        string marker = Path.Combine(Root, ".autostart-configured");
+        if (!File.Exists(marker))
+        {
+            try { SetAutoStart(true); auto.Checked = true; File.WriteAllText(marker, DateTime.Now.ToString("s")); } catch { }
         }
+
+        Tray.ShowBalloonTip(5000, "ระบบสมาชิกทำงานอยู่",
+            afterUpdate ? "อัปเดตเป็นเวอร์ชัน " + AppVersion + " แล้ว"
+                        : "โปรแกรมทำงานเบื้องหลัง — คลิกขวาที่ไอคอนนี้ (มุมขวาล่าง) เพื่อเปิดหน้าระบบหรือปิดโปรแกรม",
+            System.Windows.Forms.ToolTipIcon.Info);
+        System.Windows.Forms.Application.Run();
+    }
+
+    static System.Drawing.Icon MakeIcon()
+    {
+        using (var bmp = new System.Drawing.Bitmap(32, 32))
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        using (var bg = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(15, 122, 95)))
+        using (var font = new System.Drawing.Font("Leelawadee UI", 18, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.FillEllipse(bg, 1, 1, 30, 30);
+            var fmt = new System.Drawing.StringFormat { Alignment = System.Drawing.StringAlignment.Center, LineAlignment = System.Drawing.StringAlignment.Center };
+            g.DrawString("ย", font, System.Drawing.Brushes.White, new System.Drawing.RectangleF(0, 0, 32, 33), fmt);
+            return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+        }
+    }
+
+    static bool AutoStartEnabled()
+    {
+        using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey))
+            return k != null && k.GetValue(RunName) != null;
+    }
+
+    static void SetAutoStart(bool on)
+    {
+        using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKey))
+        {
+            if (on) k.SetValue(RunName, "\"" + ExePath + "\" --autostart");
+            else if (k.GetValue(RunName) != null) k.DeleteValue(RunName);
+        }
+        Log(on ? "ตั้งให้เปิดเองเมื่อเปิดเครื่อง" : "ยกเลิกเปิดเองเมื่อเปิดเครื่อง");
+    }
+
+    static void ExitApp(int code)
+    {
+        try { if (Tray != null) { Tray.Visible = false; Tray.Dispose(); } } catch { }
+        Environment.Exit(code);
+    }
+
+    static void Fatal(string msg)
+    {
+        System.Windows.Forms.MessageBox.Show(msg, "ระบบสมาชิก ยามุมยาเภสัช",
+            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
+    }
+
+    static string LogFile { get { return Path.Combine(Root, "logs", DateTime.Now.ToString("yyyy-MM") + ".log"); } }
+    static readonly object LogLock = new object();
+
+    static void Log(string msg)
+    {
+        try
+        {
+            lock (LogLock)
+            {
+                Directory.CreateDirectory(Path.Combine(Root, "logs"));
+                File.AppendAllText(LogFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + msg + Environment.NewLine, Encoding.UTF8);
+            }
+        }
+        catch { }
     }
 
     // ---------- พอร์ตสาธารณะ (สำหรับเว็บไซต์ผ่าน Cloudflare Tunnel) ----------
@@ -144,18 +252,48 @@ static class App
 
     static HttpListener PublicListener;
 
+    // HttpListener (HTTP.sys) รับเฉพาะคำขอที่ชื่อเว็บ (Host) ตรงกับที่ลงทะเบียนไว้ คือ localhost
+    // แต่ Cloudflare ส่งชื่อโดเมนจริงมา → "400 Invalid Hostname"
+    // จึงให้พอร์ตสาธารณะเป็นตัวส่งต่อ (TCP) ที่เปลี่ยน Host เป็น localhost แล้วส่งให้ HttpListener พอร์ตภายใน (พอร์ต+10000)
+    static readonly List<System.Net.Sockets.TcpListener> ProxyListeners = new List<System.Net.Sockets.TcpListener>();
+    static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
+
     static void StartPublic(string prefix)
     {
         if (prefix.Equals("off", StringComparison.OrdinalIgnoreCase)) return;
+        int port = new Uri(prefix.Replace("+", "localhost").Replace("*", "localhost")).Port;
+        int internalPort = port + 10000;
         PublicListener = new HttpListener();
-        PublicListener.Prefixes.Add(prefix);
+        PublicListener.Prefixes.Add("http://localhost:" + internalPort + "/");
         try { PublicListener.Start(); }
         catch (HttpListenerException e)
         {
-            Console.WriteLine("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (" + prefix + "): " + e.Message);
+            Log("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (ภายใน " + internalPort + "): " + e.Message);
+            PublicListener = null;
             return;
         }
-        Console.WriteLine("  หน้าเว็บลูกค้า (สำหรับ Cloudflare Tunnel): " + prefix);
+        // หลังอัปเดต เวอร์ชันเก่าอาจยังปล่อยพอร์ตไม่ทัน — ลองซ้ำได้ 20 วินาที
+        foreach (var addr in new[] { IPAddress.Loopback, IPAddress.IPv6Loopback })
+        {
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                try
+                {
+                    var tl = new System.Net.Sockets.TcpListener(addr, port);
+                    tl.Start();
+                    lock (ProxyListeners) ProxyListeners.Add(tl);
+                    new Thread(() => ProxyAcceptLoop(tl, internalPort)) { IsBackground = true }.Start();
+                    break;
+                }
+                catch (Exception e)
+                {
+                    if (addr.Equals(IPAddress.IPv6Loopback) && !System.Net.Sockets.Socket.OSSupportsIPv6) break;
+                    if (attempt == 39) Log("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (" + addr + ":" + port + "): " + e.Message);
+                    else Thread.Sleep(500);
+                }
+            }
+        }
+        Log("  หน้าเว็บลูกค้า (สำหรับ Cloudflare Tunnel): " + prefix);
         new Thread(() =>
         {
             while (true)
@@ -166,6 +304,62 @@ static class App
                 ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, true), ctx);
             }
         }) { IsBackground = true }.Start();
+    }
+
+    static void ProxyAcceptLoop(System.Net.Sockets.TcpListener tl, int internalPort)
+    {
+        while (true)
+        {
+            System.Net.Sockets.TcpClient c;
+            try { c = tl.AcceptTcpClient(); }
+            catch { if (Restarting) return; Thread.Sleep(500); continue; }
+            ThreadPool.QueueUserWorkItem(o => ProxyOne((System.Net.Sockets.TcpClient)o, internalPort), c);
+        }
+    }
+
+    // ส่งต่อคำขอเดียว: อ่าน header, เปลี่ยน Host เป็น localhost, บังคับ Connection: close แล้วส่งต่อทั้งสองทาง
+    static void ProxyOne(System.Net.Sockets.TcpClient client, int internalPort)
+    {
+        try
+        {
+            using (client)
+            using (var upstream = new System.Net.Sockets.TcpClient())
+            {
+                client.ReceiveTimeout = 30000;
+                var cs = client.GetStream();
+                var buf = new MemoryStream();
+                var chunk = new byte[8192];
+                int headerEnd = -1;
+                while (headerEnd < 0)
+                {
+                    int n = cs.Read(chunk, 0, chunk.Length);
+                    if (n <= 0) return;
+                    buf.Write(chunk, 0, n);
+                    if (buf.Length > 65536) return; // header ใหญ่ผิดปกติ
+                    headerEnd = Latin1.GetString(buf.ToArray()).IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                }
+                byte[] all = buf.ToArray();
+                var lines = Latin1.GetString(all, 0, headerEnd).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                var head = new StringBuilder(lines[0]).Append("\r\n");
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    string name = lines[i].Split(':')[0].Trim().ToLowerInvariant();
+                    if (name == "host" || name == "connection" || name == "keep-alive" || name == "proxy-connection") continue;
+                    head.Append(lines[i]).Append("\r\n");
+                }
+                head.Append("Host: localhost:").Append(internalPort).Append("\r\nConnection: close\r\n\r\n");
+
+                upstream.Connect(IPAddress.Loopback, internalPort);
+                var us = upstream.GetStream();
+                byte[] h = Latin1.GetBytes(head.ToString());
+                us.Write(h, 0, h.Length);
+                us.Write(all, headerEnd + 4, all.Length - headerEnd - 4); // ส่วน body ที่อ่านมาแล้ว
+                var up = new Thread(() => { try { cs.CopyTo(us); } catch { } }) { IsBackground = true };
+                up.Start();
+                us.CopyTo(cs);
+            }
+        }
+        catch { }
     }
 
     static readonly string[] PublicRoutes = { "mode", "settings", "drugs", "my/history" };
@@ -266,7 +460,7 @@ static class App
                     else wait = TimeSpan.FromMinutes(10);
                 }
             }
-            catch (Exception e) { UpdateError = e.Message; Console.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " UPDATE " + e.Message); }
+            catch (Exception e) { UpdateError = e.Message; Log("UPDATE " + e.Message); }
             Thread.Sleep(wait);
         }
     }
@@ -358,7 +552,7 @@ static class App
             UpdateStatus = "downloading";
             try
             {
-                Console.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " กำลังดาวน์โหลดเวอร์ชัน " + ver + " ...");
+                Log("กำลังดาวน์โหลดเวอร์ชัน " + ver + " ...");
                 byte[] data = Fetch(ResolveLocation(UpdateUrl, Str(m, "url")));
                 string sha = BitConverter.ToString(System.Security.Cryptography.SHA256.Create().ComputeHash(data)).Replace("-", "");
                 if (Str(m, "sha256").Length > 0 && !sha.Equals(Str(m, "sha256"), StringComparison.OrdinalIgnoreCase))
@@ -382,7 +576,7 @@ static class App
             }
 
             UpdateStatus = "restarting";
-            Console.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " ติดตั้งเวอร์ชัน " + ver + " แล้ว กำลังเริ่มโปรแกรมใหม่...");
+            Log("ติดตั้งเวอร์ชัน " + ver + " แล้ว กำลังเริ่มโปรแกรมใหม่...");
             new Thread(() => Restart(exe, old, ver)).Start();
         }
     }
@@ -393,7 +587,7 @@ static class App
         foreach (bool shell in new[] { true, false })
         {
             try { return Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = shell, WorkingDirectory = Root }); }
-            catch (Exception e) { Console.WriteLine("เปิดโปรแกรมไม่ได้ (" + (shell ? "หน้าต่างใหม่" : "หน้าต่างเดิม") + "): " + e.Message); }
+            catch (Exception e) { Log("เปิดโปรแกรมไม่ได้ (" + (shell ? "หน้าต่างใหม่" : "หน้าต่างเดิม") + "): " + e.Message); }
         }
         return null;
     }
@@ -405,6 +599,7 @@ static class App
         Restarting = true;
         try { Listener.Stop(); } catch { }
         try { if (PublicListener != null) PublicListener.Stop(); } catch { }
+        lock (ProxyListeners) foreach (var tl in ProxyListeners) { try { tl.Stop(); } catch { } }
         Process proc = StartSelf(exe, "--after-update");
 
         for (int i = 0; proc != null && i < 60; i++)
@@ -415,14 +610,14 @@ static class App
                 using (var wc = new WebClient())
                 {
                     var v = Json.Deserialize<Dictionary<string, object>>(wc.DownloadString(BaseUrl + "api/version"));
-                    if (Str(v, "version") == ver) Environment.Exit(0);
+                    if (Str(v, "version") == ver) ExitApp(0);
                 }
             }
             catch { }
             if (proc.HasExited) break;
         }
 
-        Console.WriteLine("เวอร์ชันใหม่เปิดไม่ขึ้น — ย้อนกลับเวอร์ชัน " + AppVersion);
+        Log("เวอร์ชันใหม่เปิดไม่ขึ้น — ย้อนกลับเวอร์ชัน " + AppVersion);
         try { File.WriteAllText(SkipFile, ver); } catch { }
         try { if (proc != null && !proc.HasExited) { proc.Kill(); proc.WaitForExit(5000); } } catch { }
         try
@@ -435,10 +630,11 @@ static class App
         }
         catch (Exception e)
         {
-            Console.WriteLine("ย้อนกลับไม่สำเร็จ: " + e.Message + " — เปลี่ยนชื่อ " + Path.GetFileName(old) + " กลับเป็น " + Path.GetFileName(exe) + " เอง");
-            Console.ReadKey();
+            string msg = "ย้อนกลับเวอร์ชันไม่สำเร็จ: " + e.Message + "\n\nให้เปลี่ยนชื่อไฟล์ " + Path.GetFileName(old) + " กลับเป็น " + Path.GetFileName(exe) + " แล้วเปิดใหม่";
+            Log(msg);
+            Fatal(msg);
         }
-        Environment.Exit(1);
+        ExitApp(1);
     }
 
     // ---------- config / db ----------
@@ -600,7 +796,7 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         }
         catch (Exception e)
         {
-            Console.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " ERROR " + e.Message);
+            Log("ERROR " + e.Message);
             // ไม่ส่งรายละเอียดข้อผิดพลาด (เช่น SQL) ออกไปยังอินเทอร์เน็ต
             try { WriteJson(ctx, 500, new Dictionary<string, object> { { "error", pub ? "ระบบขัดข้อง กรุณาลองใหม่" : e.Message } }); } catch { }
         }

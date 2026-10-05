@@ -8,3 +8,7 @@ keys/
 *.exe.bad
 dist/
 update-skip.txt
+
+# บันทึกการทำงาน / ไฟล์ทดสอบ
+logs/
+.autostart-configured

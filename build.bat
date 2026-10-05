@@ -4,7 +4,8 @@ cd /d "%~dp0"
 set OUT=%~1
 if "%OUT%"=="" set OUT=YaMumMember.exe
 "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /optimize /platform:anycpu ^
-  /out:"%OUT%" /r:System.Web.Extensions.dll /r:System.Core.dll ^
+  /target:winexe /win32icon:app.ico ^
+  /out:"%OUT%" /r:System.Web.Extensions.dll /r:System.Core.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll ^
   /resource:wwwroot\index.html,www.index.html ^
   /resource:wwwroot\app.js,www.app.js ^
   /resource:wwwroot\app.css,www.app.css ^
