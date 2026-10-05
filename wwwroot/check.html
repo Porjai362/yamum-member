@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a5a45">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2266%20160%20156%20150%22%20role%3D%22img%22%20aria-label%3D%22%E0%B8%A1%E0%B8%B8%E0%B8%A1%E0%B8%A2%E0%B8%B2%E0%B9%80%E0%B8%A0%E0%B8%AA%E0%B8%B1%E0%B8%8A%20Mumya%20Pharmacy%22%3E%0A%20%20%3Cg%20fill%3D%22none%22%20stroke%3D%22%233b4045%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22square%22%20stroke-linejoin%3D%22miter%22%3E%0A%20%20%20%20%3Cpath%20d%3D%22M101%20297%20V216%20L157%20168%20L214%20218%22%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%22M128%20297%20H140%22%2F%3E%0A%20%20%3C%2Fg%3E%0A%20%20%3Cg%20transform%3D%22rotate(-28%20101%20268)%22%3E%0A%20%20%20%20%3Crect%20x%3D%2276%22%20y%3D%22258%22%20width%3D%2250%22%20height%3D%2221%22%20rx%3D%2210.5%22%20fill%3D%22%23f4c430%22%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%22M101%20258%20H115.5%20A10.5%2010.5%200%200%201%20115.5%20279%20H101%20Z%22%20fill%3D%22%23e5412f%22%2F%3E%0A%20%20%3C%2Fg%3E%0A%20%20%3Cellipse%20cx%3D%2288%22%20cy%3D%22298%22%20rx%3D%2215%22%20ry%3D%228.5%22%20fill%3D%22%238cc63f%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M78%20298%20H98%22%20stroke%3D%22%235f9a22%22%20stroke-width%3D%221.6%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%22115%22%20cy%3D%22292%22%20r%3D%2212.5%22%20fill%3D%22%233a86c8%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M107%20300%20L123%20284%22%20stroke%3D%22%23dbe9f6%22%20stroke-width%3D%222%22%2F%3E%0A%3C%2Fsvg%3E">
 <title>สมาชิก ยามุมยาเภสัช</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,6 +36,8 @@
   .box { position: relative; background: var(--paper); border-radius: 26px; width: min(560px, 100%); margin: 0 auto;
     padding: 22px 20px 24px; box-shadow: 0 30px 60px -20px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04); animation: rise .6s var(--ease) both; }
   .brandbar { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .brand-logo { width: min(230px, 62vw); height: auto; display: block; margin: -6px auto -2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .logo { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--mint), var(--brand)); display: grid; place-items: center;
     color: #fff; font: 700 18px var(--f-display); box-shadow: 0 6px 14px -6px var(--brand); }
   h1 { font: 700 21px/1.2 var(--f-display); margin: 0; color: var(--brand); }
@@ -174,7 +177,22 @@
 <body>
 <div class="glow" aria-hidden="true"><i></i><i></i></div>
 <div class="box">
-  <div class="brandbar"><div class="logo">ย</div><h1 id="shop">ร้านยามุมยาเภสัช</h1></div>
+  <div class="brandbar"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="64 150 336 162" role="img" aria-label="มุมยาเภสัช Mumya Pharmacy">
+  <g fill="none" stroke="#3b4045" stroke-width="3.6" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M101 297 V216 L157 168 L214 218"/>
+    <path d="M128 297 H140"/>
+  </g>
+  <text x="139" y="263" font-family="Anuphan, 'Noto Sans Thai', 'Leelawadee UI', Tahoma, sans-serif" font-size="47" font-weight="600" fill="#3b4045">มุมยาเภสัช</text>
+  <text x="152" y="289" font-family="'Noto Sans', 'Segoe UI', Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="3.4" fill="#3b4045">MUMYA PHARMACY</text>
+  <g transform="rotate(-28 101 268)">
+    <rect x="76" y="258" width="50" height="21" rx="10.5" fill="#f4c430"/>
+    <path d="M101 258 H115.5 A10.5 10.5 0 0 1 115.5 279 H101 Z" fill="#e5412f"/>
+  </g>
+  <ellipse cx="88" cy="298" rx="15" ry="8.5" fill="#8cc63f"/>
+  <path d="M78 298 H98" stroke="#5f9a22" stroke-width="1.6"/>
+  <circle cx="115" cy="292" r="12.5" fill="#3a86c8"/>
+  <path d="M107 300 L123 284" stroke="#dbe9f6" stroke-width="2"/>
+</svg><h1 id="shop" class="sr">ร้านยามุมยาเภสัช</h1></div>
   <div class="tabs" id="tabs" hidden data-on="points">
     <button data-tab="points">เช็คแต้ม</button>
     <button data-tab="member">สมาชิก</button>
@@ -303,7 +321,9 @@ function memberLogin(msg = '') {
       const body = { phone: ph.value, pin: pin.value };
       if (LINE.idToken) body.lineIdToken = LINE.idToken;
       const d = await api('my/login', body);
-      token = d.token; me = d; meTab = 'drugs'; LINE.auto = true;
+      token = d.token; LINE.auto = true;
+      if (d.mustChange) return forcePinForm(d.name, pin.value);
+      me = d; meTab = 'drugs';
       renderMe(true);
     } catch (e) { memberLogin(e.message); }
   };
@@ -479,6 +499,34 @@ function changePinForm(msg = '', ok = false) {
   };
 }
 
+// ---------- PIN ชั่วคราวจากร้าน: ต้องตั้ง PIN ใหม่ก่อนดูข้อมูล ----------
+// tempPin = PIN ที่เพิ่งใส่ตอนเข้าสู่ระบบ (ไม่ต้องถามซ้ำ) / ว่าง = เข้าทาง LINE ต้องใส่ PIN ชั่วคราวเอง
+function forcePinForm(name, tempPin, msg = '') {
+  me = null;
+  privateScreen(logout);
+  view.innerHTML = `<div class="center rise"><div style="font-size:42px;line-height:1">🔐</div><h2 style="margin-top:6px">ตั้ง PIN ใหม่ของคุณ</h2>
+      <div class="muted">สวัสดีคุณ${esc(name || '')} — PIN ที่ได้จากร้านเป็น PIN ชั่วคราว<br>กรุณาตั้ง PIN ใหม่ 4-6 หลักที่จำได้ก่อนใช้งาน</div></div>
+    ${tempPin ? '' : '<label class="lb rise" style="--d:1">PIN ชั่วคราวจากร้าน</label><input id="cur" class="rise" style="--d:1" type="password" inputmode="numeric" maxlength="6" autocomplete="off">'}
+    <label class="lb rise" style="--d:2">PIN ใหม่ (ตัวเลข 4-6 หลัก)</label><input id="np" class="rise" style="--d:2" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <label class="lb rise" style="--d:3">ยืนยัน PIN ใหม่</label><input id="np2" class="rise" style="--d:3" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    ${padHtml()}<button class="go rise" style="--d:4" id="go">ตั้ง PIN และเข้าใช้งาน</button>
+    <div class="center"><button class="link" id="out">ออกจากระบบ</button></div><div class="err">${esc(msg)}</div>`;
+  const cur = view.querySelector('#cur'), np = view.querySelector('#np'), np2 = view.querySelector('#np2'), btn = view.querySelector('#go');
+  keypad([cur, np, np2].filter(Boolean));
+  (cur || np).focus();
+  view.querySelector('#out').onclick = logout;
+  btn.onclick = async () => {
+    if (np.value !== np2.value) return forcePinForm(name, tempPin, 'PIN ใหม่ทั้งสองช่องไม่ตรงกัน');
+    btn.disabled = true; btn.classList.add('loading');
+    try {
+      const r = await api('my/pin', { current: tempPin || cur.value, pin: np.value });
+      if (r.token) token = r.token;
+      me = await api('my/profile'); meTab = 'drugs';
+      renderMe(true);
+    } catch (e) { if (token) forcePinForm(name, tempPin, e.message); }
+  };
+}
+
 // ---------- ขอแก้ไขข้อมูลส่วนตัว (เภสัชกรตรวจก่อนบันทึกลงระบบร้าน) ----------
 const EDIT_FIELDS = [
   ['Phone', 'เบอร์โทร', 'tel'], ['Email', 'อีเมล', 'email'], ['BirthDate', 'วันเกิด', 'date'],
@@ -538,6 +586,7 @@ async function lineSignIn() {
   view.innerHTML = '<div class="spinner"></div><div class="muted center">กำลังเข้าสู่ระบบด้วย LINE…</div>';
   try {
     const d = await api('my/line', { idToken: LINE.idToken });
+    if (d.linked && d.mustChange) { token = d.token; return forcePinForm(d.name, ''); }
     if (d.linked) { token = d.token; me = d; meTab = 'drugs'; return renderMe(true); }
     memberLogin();
   } catch (e) {
@@ -554,8 +603,11 @@ function linkLineForm(msg = '') {
   view.querySelector('#bk').onclick = () => renderMe();
   view.querySelector('#go').onclick = async () => {
     try {
-      const d = await api('my/login', { phone: (me.Contact || {}).Phone || '', pin: view.querySelector('#pin').value, lineIdToken: LINE.idToken });
-      token = d.token; me = d; renderMe();
+      const p = view.querySelector('#pin').value;
+      const d = await api('my/login', { phone: (me.Contact || {}).Phone || '', pin: p, lineIdToken: LINE.idToken });
+      token = d.token;
+      if (d.mustChange) return forcePinForm(d.name, p);
+      me = d; renderMe();
     } catch (e) { if (me) linkLineForm(e.message); }
   };
 }

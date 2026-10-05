@@ -40,6 +40,7 @@ async function api(path, body) {
   if (body) { opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
   const res = await fetch('/api/' + path, opt);
   const data = await res.json().catch(() => ({ error: 'ตอบกลับไม่ถูกต้อง' }));
+  if (res.status === 401 && data.login) { showAdminLogin(data.error); throw new Error(data.error); }
   if (res.status === 401) {
     const p = prompt('ใส่ PIN พนักงาน');
     if (p) { setPin(p); return api(path, body); }
@@ -106,6 +107,7 @@ async function viewMembers() {
       <option value="last">เรียง: มาล่าสุด</option><option value="new">เรียง: สมัครล่าสุด</option><option value="name">เรียง: ชื่อ</option>
     </select>
     <span class="muted small" id="mcount"></span>
+    <button class="btn" onclick="tempPinAllDialog()">🔐 PIN ชั่วคราวให้คนที่ยังไม่มี</button>
   </div>
   <div class="card" style="padding:0"><div class="table-wrap" id="mtable"><div class="empty">กำลังโหลด…</div></div></div>
   <p class="muted small">ข้อมูลลูกค้ามาจาก CW Pharma โดยตรง — เพิ่ม/แก้ไขข้อมูลลูกค้าที่โปรแกรม CW แล้วจะแสดงที่นี่ทันที</p>`;
@@ -165,7 +167,7 @@ function renderMember(tab) {
     <button class="btn" onclick="pinDialog()">🔒 ${current.pin ? 'เปลี่ยน PIN ดูประวัติยา' : 'ตั้ง PIN ดูประวัติยา'}</button>
   </div>
   <div class="small muted" style="margin-top:6px">${current.pin
-    ? `ลูกค้าดูประวัติยาเองได้ (ตั้ง PIN โดย ${esc(current.pin.UpdatedBy)} ${dateTh(current.pin.UpdatedAt)})${current.pin.FailCount >= 10 ? ' · <b style="color:var(--danger)">ถูกล็อก — ตั้ง PIN ใหม่เพื่อปลดล็อก</b>' : ''}`
+    ? `${current.pin.MustChange ? '<span class="pill red">PIN ชั่วคราว</span> ลูกค้ายังไม่ได้ตั้ง PIN เอง' : 'ลูกค้าดูประวัติยาเองได้'} (ตั้ง PIN โดย ${esc(current.pin.UpdatedBy)} ${dateTh(current.pin.UpdatedAt)})${current.pin.FailCount >= 10 ? ' · <b style="color:var(--danger)">ถูกล็อก — ตั้ง PIN ใหม่เพื่อปลดล็อก</b>' : ''}`
     : 'ยังไม่มี PIN — ลูกค้ายังดูประวัติยาเองไม่ได้'}</div></div>
   <div class="m-body">
     ${m.Allergy ? `<div class="alert">⚠ แพ้ยา: ${esc(m.Allergy)}</div>` : ''}
@@ -308,6 +310,53 @@ function pinDialog() {
   });
   const f = $('#dlg form');
   if (f.nopin) f.nopin.onchange = () => { f.pin.required = f.pin2.required = !f.nopin.checked; };
+  // ลูกค้าไม่อยู่หน้าร้าน: สุ่ม PIN ชั่วคราวให้ แล้วแจ้งลูกค้า (ลูกค้าต้องตั้งใหม่ตอนเข้าครั้งแรก)
+  const tb = document.createElement('button');
+  tb.type = 'button'; tb.className = 'btn'; tb.textContent = '🎲 สุ่ม PIN ชั่วคราว';
+  tb.onclick = async () => {
+    const staff = f.staff.value.trim();
+    if (!staff) { toast('กรุณาใส่ชื่อพนักงาน', true); f.staff.focus(); return; }
+    try {
+      setStaff(staff);
+      const r = await api(`members/${m.Id}/temppin`, { staff });
+      $('#dlg').close();
+      showTempPins([{ ...m, Pin: r.pin }]);
+      await openMember(m.Id);
+    } catch (e) { toast(e.message, true); }
+  };
+  f.querySelector('.dlg-foot').prepend(tb);
+}
+
+// แสดง PIN ชั่วคราว (ครั้งเดียว — ระบบไม่เก็บตัวเลขจริง)
+function showTempPins(list) {
+  const tsv = 'รหัส\tชื่อ\tเบอร์โทร\tPIN ชั่วคราว\n' + list.map(r => [r.Code, r.FullName, r.Phone, r.Pin].join('\t')).join('\n');
+  const d = $('#dlg');
+  d.innerHTML = `<form method="dialog"><div class="dlg-head">PIN ชั่วคราว ${list.length} คน</div><div class="dlg-body">
+    <div class="alert warn">แสดงครั้งเดียว ระบบไม่เก็บตัวเลข PIN ไว้ — คัดลอกเก็บไว้ก่อนปิด (ลืมได้ สุ่มใหม่ทีละคนได้)<br>
+      ลูกค้าเข้าที่หน้าสมาชิกด้วยเบอร์ + PIN นี้ แล้วระบบจะให้ตั้ง PIN ใหม่ของตัวเองทันที</div>
+    ${list.length ? `<div class="table-wrap" style="max-height:50vh"><table><thead><tr><th>ชื่อ</th><th>เบอร์โทร</th><th class="num">PIN</th></tr></thead><tbody>
+      ${list.map(r => `<tr><td>${esc(r.FullName)} <span class="small muted">${esc(r.Code)}</span></td><td class="small">${esc(r.Phone)}</td>
+        <td class="num" style="font:600 18px monospace;letter-spacing:2px">${esc(r.Pin)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">สมาชิกที่มีเบอร์โทรมี PIN ครบทุกคนแล้ว</div>'}
+  </div><div class="dlg-foot"><button class="btn" type="button" id="copyPins">คัดลอกทั้งหมด (วางใน Excel ได้)</button><button class="btn primary" value="ok">ปิด</button></div></form>`;
+  d.querySelector('#copyPins').onclick = async () => {
+    try { await navigator.clipboard.writeText(tsv); toast('คัดลอกแล้ว'); } catch { toast('คัดลอกไม่ได้ ลองเลือกข้อความเอง', true); }
+  };
+  d.showModal();
+}
+
+function tempPinAllDialog() {
+  dialog('สร้าง PIN ชั่วคราวให้สมาชิกที่ยังไม่มี PIN', `
+    <div class="small">สุ่ม PIN 6 หลักคนละตัว ให้สมาชิกทุกคนที่มีเบอร์โทรแต่ยังไม่มี PIN แล้วแสดงรายชื่อให้คัดลอกไปแจ้งลูกค้า
+      (โทร / LINE แชท / บอกที่หน้าร้าน) — ลูกค้าต้องตั้ง PIN ใหม่ตอนเข้าครั้งแรก</div>
+    <div class="small muted">สมาชิกที่มี PIN อยู่แล้วไม่ถูกเปลี่ยน</div>
+    ${staffField()}`, 'สร้าง PIN ชั่วคราว', async dlg => {
+    const f = dlg.querySelector('form');
+    setStaff(f.staff.value.trim());
+    const list = await api('pins/temp-all', { staff: f.staff.value });
+    dlg.close();
+    showTempPins(list);
+  });
 }
 
 // ---------- แก้ไขข้อมูลลูกค้า (บันทึกลงโปรแกรม CW) ----------
@@ -561,6 +610,10 @@ async function viewSettings() {
     <button type="button" class="btn" id="cloudKey">${s.HasCloudKey ? 'สร้างคีย์ใหม่' : 'สร้างคีย์ซิงก์'}</button>
     <button type="button" class="btn" id="cloudSync">ซิงก์ตอนนี้</button>
     <button type="button" class="btn" id="cloudFull">ส่งข้อมูลทั้งหมดใหม่</button></div></div>
+  <div class="card"><h3>หน้าแอดมินออนไลน์ (ใช้นอกร้าน)</h3>
+    <p class="small muted" style="margin-top:0">เปิดหน้านี้จากที่อื่นผ่าน Cloudflare Tunnel (ชี้ไปที่ <code>http://localhost:8092</code>) ต้องใส่รหัสแอดมินก่อนเข้า
+      · ที่เครื่องร้านเข้าได้เลยเหมือนเดิม · แก้ไขข้อมูลยังต้องใช้ PIN พนักงาน</p>
+    <div id="adminBox" class="small">กำลังโหลด…</div></div>
   <div class="card"><h3>อัปเดตโปรแกรม</h3><div class="form-grid">
     <label class="f">อัปเดตอัตโนมัติ<select name="AutoUpdate"><option value="1">เปิด — ติดตั้งเองตอนไม่มีคนใช้งาน</option><option value="0">ปิด — แจ้งเตือนอย่างเดียว</option></select></label>
     <div id="updInfo" class="small"></div>
@@ -612,6 +665,30 @@ async function viewSettings() {
         + (c.lastError ? `<div style="color:var(--danger)">${esc(c.lastError)}</div>` : '');
   };
   api('cloud/status').then(showCloud).catch(() => {});
+  if (REMOTE) $('#cloudKey').hidden = true; // สร้างคีย์ได้เฉพาะที่เครื่องร้าน
+  // รหัสหน้าแอดมินออนไลน์ (ตั้ง/เปลี่ยน/ปิด ได้เฉพาะที่เครื่องร้าน)
+  api('admin/me').then(a => {
+    const box = $('#adminBox');
+    if (REMOTE) { box.innerHTML = '<span class="muted">เปลี่ยนรหัสหรือปิดหน้าแอดมินออนไลน์ได้ที่เครื่องร้านเท่านั้น</span>'; return; }
+    box.innerHTML = `<div style="margin-bottom:8px">สถานะ: ${a.enabled ? '<span class="pill">เปิดใช้อยู่</span>'
+        : a.hasPassword ? '<span class="pill red">ปิด — ต้องตั้ง PIN พนักงานก่อน</span>' : '<span class="pill red">ยังไม่ได้ตั้งรหัส (ปิดอยู่)</span>'}</div>
+      <div class="form-grid">
+        <label class="f">รหัสแอดมินใหม่ (อย่างน้อย 10 ตัว)<input id="admPw" type="password" autocomplete="new-password"></label>
+        <label class="f">ยืนยันรหัส<input id="admPw2" type="password" autocomplete="new-password"></label></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button type="button" class="btn" id="admSet">${a.hasPassword ? 'เปลี่ยนรหัส' : 'ตั้งรหัสและเปิดใช้'}</button>
+        ${a.hasPassword ? '<button type="button" class="btn danger" id="admOff">ปิดหน้าแอดมินออนไลน์</button>' : ''}</div>
+      <div class="muted" style="margin-top:6px">เปลี่ยนรหัสแล้ว ทุกเครื่องที่เข้าอยู่จากนอกร้านต้องเข้าใหม่</div>`;
+    $('#admSet').onclick = async () => {
+      if ($('#admPw').value !== $('#admPw2').value) return toast('รหัสทั้งสองช่องไม่ตรงกัน', true);
+      try { await api('admin/password', { password: $('#admPw').value }); toast('ตั้งรหัสแล้ว'); route(); } catch (e) { toast(e.message, true); }
+    };
+    const off = $('#admOff');
+    if (off) off.onclick = async () => {
+      if (!confirm('ปิดหน้าแอดมินออนไลน์? เข้าจากนอกร้านไม่ได้จนกว่าจะตั้งรหัสใหม่')) return;
+      try { await api('admin/password', { password: '' }); toast('ปิดแล้ว'); route(); } catch (e) { toast(e.message, true); }
+    };
+  }).catch(() => {});
   const runSync = async full => {
     try { showCloud(await api('cloud/sync' + (full ? '?full=1' : ''), {})); toast('ซิงก์เรียบร้อย'); }
     catch (e) { toast(e.message, true); api('cloud/status').then(showCloud); }
@@ -696,7 +773,40 @@ function applyShop() {
   document.title = 'ระบบสมาชิก ' + (settings.ShopName || '');
 }
 
+// ---------- หน้าแอดมินออนไลน์ (เปิดจากนอกร้านผ่าน Cloudflare Tunnel) ----------
+let REMOTE = false;
+function showAdminLogin(msg = '') {
+  $('#tabs').hidden = true; $('#quickForm').hidden = true; $('#updateBar').hidden = true;
+  main.innerHTML = `<form class="card login-card" id="adminLogin" autocomplete="off">
+    <h2 style="margin:0">เข้าสู่ระบบหน้าแอดมิน</h2>
+    <p class="small muted">ใช้นอกร้าน · แก้ไขข้อมูลยังต้องใช้ PIN พนักงานตามปกติ</p>
+    <label class="f">รหัสแอดมิน<input id="adminPw" type="password" required autocomplete="current-password"></label>
+    <button class="btn primary">เข้าสู่ระบบ</button>
+    <div class="small" style="color:var(--danger);min-height:1.4em">${esc(msg === 'กรุณาเข้าสู่ระบบ' ? '' : msg)}</div></form>`;
+  $('#adminPw').focus();
+  $('#adminLogin').onsubmit = async e => {
+    e.preventDefault();
+    try { await api('admin/login', { password: $('#adminPw').value }); location.reload(); }
+    catch (err) { if (!$('#adminLogin')) return; showAdminLogin(err.message); }
+  };
+}
+
+async function adminLogout() {
+  try { await api('admin/logout', {}); } catch {}
+  location.reload();
+}
+
 (async () => {
+  try {
+    const who = await api('admin/me');
+    REMOTE = who.remote;
+    if (REMOTE && !who.loggedIn) return showAdminLogin(who.enabled ? '' : 'ยังไม่ได้เปิดใช้หน้าแอดมินออนไลน์ (ตั้งรหัสที่เครื่องร้าน)');
+    if (REMOTE) {
+      const b = document.createElement('button');
+      b.className = 'btn sm'; b.textContent = 'ออกจากระบบ'; b.onclick = adminLogout;
+      $('header.top').append(b);
+    }
+  } catch { return; }
   try {
     settings = await api('settings');
     applyShop();

@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS member (
   fail INTEGER NOT NULL DEFAULT 0,
   locked_until INTEGER NOT NULL DEFAULT 0,
   data TEXT NOT NULL,            -- ข้อมูลหน้าสมาชิก (JSON) แบบเดียวกับที่โปรแกรมร้านแสดง
-  updated TEXT NOT NULL
+  updated TEXT NOT NULL,
+  must_change INTEGER NOT NULL DEFAULT 0   -- PIN ชั่วคราว ต้องตั้งใหม่ก่อนดูข้อมูล
 );
 CREATE INDEX IF NOT EXISTS member_phone ON member(phone);
 CREATE TABLE IF NOT EXISTS drug (id INTEGER PRIMARY KEY, data TEXT NOT NULL);

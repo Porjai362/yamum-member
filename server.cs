@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.11.0")]
+[assembly: System.Reflection.AssemblyVersion("1.13.1")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -125,6 +125,8 @@ static class App
 
         string publicPrefix = Cfg(cfg, "PublicListen", "http://localhost:8090/");
         StartPublic(publicPrefix);
+        // หน้าพนักงานสำหรับใช้นอกร้าน (ผ่าน Cloudflare Tunnel) — ใช้ได้เมื่อตั้งรหัสแอดมินและ PIN พนักงานแล้ว
+        StartRelayed(Cfg(cfg, "AdminListen", "http://localhost:8092/"), true);
 
         CleanupOldExe();
         new Thread(UpdateLoop) { IsBackground = true }.Start();
@@ -264,20 +266,24 @@ static class App
     static readonly List<System.Net.Sockets.TcpListener> ProxyListeners = new List<System.Net.Sockets.TcpListener>();
     static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
 
-    static void StartPublic(string prefix)
+    static void StartPublic(string prefix) { StartRelayed(prefix, false); }
+
+    // admin = พอร์ตหน้าพนักงานสำหรับใช้นอกร้าน (ผ่าน Cloudflare Tunnel) ต้องเข้าสู่ระบบด้วยรหัสแอดมินก่อน
+    static void StartRelayed(string prefix, bool admin)
     {
         if (prefix.Equals("off", StringComparison.OrdinalIgnoreCase)) return;
+        string label = admin ? "หน้าแอดมินออนไลน์" : "หน้าเว็บลูกค้า";
         int port = new Uri(prefix.Replace("+", "localhost").Replace("*", "localhost")).Port;
         int internalPort = port + 10000;
-        PublicListener = new HttpListener();
-        PublicListener.Prefixes.Add("http://localhost:" + internalPort + "/");
-        try { PublicListener.Start(); }
+        var listener = new HttpListener();
+        listener.Prefixes.Add("http://localhost:" + internalPort + "/");
+        try { listener.Start(); }
         catch (HttpListenerException e)
         {
-            Log("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (ภายใน " + internalPort + "): " + e.Message);
-            PublicListener = null;
+            Log("  เปิดพอร์ต" + label + "ไม่ได้ (ภายใน " + internalPort + "): " + e.Message);
             return;
         }
+        if (!admin) PublicListener = listener;
         // หลังอัปเดต เวอร์ชันเก่าอาจยังปล่อยพอร์ตไม่ทัน — ลองซ้ำได้ 20 วินาที
         foreach (var addr in new[] { IPAddress.Loopback, IPAddress.IPv6Loopback })
         {
@@ -294,23 +300,124 @@ static class App
                 catch (Exception e)
                 {
                     if (addr.Equals(IPAddress.IPv6Loopback) && !System.Net.Sockets.Socket.OSSupportsIPv6) break;
-                    if (attempt == 39) Log("  เปิดพอร์ตหน้าเว็บลูกค้าไม่ได้ (" + addr + ":" + port + "): " + e.Message);
+                    if (attempt == 39) Log("  เปิดพอร์ต" + label + "ไม่ได้ (" + addr + ":" + port + "): " + e.Message);
                     else Thread.Sleep(500);
                 }
             }
         }
-        Log("  หน้าเว็บลูกค้า (สำหรับ Cloudflare Tunnel): " + prefix);
+        Log("  " + label + " (สำหรับ Cloudflare Tunnel): " + prefix);
         new Thread(() =>
         {
             while (true)
             {
                 HttpListenerContext ctx;
-                try { ctx = PublicListener.GetContext(); }
+                try { ctx = listener.GetContext(); }
                 catch { if (Restarting) return; Thread.Sleep(1000); continue; }
-                ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, true), ctx);
+                ThreadPool.QueueUserWorkItem(o => Handle((HttpListenerContext)o, !admin, admin), ctx);
             }
         }) { IsBackground = true }.Start();
     }
+
+    // ---------- หน้าแอดมินออนไลน์: เข้าสู่ระบบด้วยรหัสแอดมิน (เฉพาะพอร์ตที่ผ่าน Tunnel) ----------
+    // ที่เครื่องร้าน (localhost:8088) เข้าได้เลยเหมือนเดิม · แก้ไขข้อมูลยังต้องใช้ PIN พนักงานทั้งสองทาง
+    // ทำได้เฉพาะที่เครื่องร้าน: ตั้งรหัสแอดมิน, สร้างคีย์ซิงก์ออนไลน์
+    static readonly Dictionary<string, DateTime> AdminSessions = new Dictionary<string, DateTime>();
+    static readonly TimeSpan AdminSessionLife = TimeSpan.FromHours(12);
+    static readonly string[] LocalOnlyRoutes = { "admin/password", "cloud/newkey" };
+    const string AdminCookie = "ymadmin";
+
+    static string HashAdminPassword(string pw, string salt)
+    {
+        using (var kdf = new System.Security.Cryptography.Rfc2898DeriveBytes(pw, Convert.FromBase64String(salt), 100000))
+            return Convert.ToBase64String(kdf.GetBytes(32));
+    }
+
+    static bool AdminEnabled(Dictionary<string, string> s)
+    {
+        string v;
+        return s.TryGetValue("AdminPasswordHash", out v) && v.Length > 0 && s["StaffPin"].Length > 0;
+    }
+
+    static string AdminToken(HttpListenerContext ctx)
+    {
+        var c = ctx.Request.Cookies[AdminCookie];
+        return c == null ? "" : c.Value;
+    }
+
+    static bool AdminLoggedIn(HttpListenerContext ctx)
+    {
+        string t = AdminToken(ctx);
+        lock (AdminSessions)
+        {
+            foreach (var k in AdminSessions.Where(kv => kv.Value < DateTime.Now).Select(kv => kv.Key).ToList()) AdminSessions.Remove(k);
+            return t.Length > 0 && AdminSessions.ContainsKey(t);
+        }
+    }
+
+    static object AdminLogin(HttpListenerContext ctx, Dictionary<string, string> s, Dictionary<string, object> b)
+    {
+        string ip = ClientIp(ctx);
+        if (RecentHits("adminfail:" + ip, TimeSpan.FromMinutes(15), false) >= 8 || RecentHits("adminfail:all", TimeSpan.FromMinutes(15), false) >= 40)
+            throw new ApiError(429, "ใส่รหัสผิดหลายครั้ง กรุณารอ 15 นาที");
+        if (!AdminEnabled(s)) throw new ApiError(503, "ยังไม่ได้เปิดใช้หน้าแอดมินออนไลน์ (ตั้งรหัสที่เครื่องร้าน)");
+        var parts = s["AdminPasswordHash"].Split(':');
+        if (parts.Length != 2 || HashAdminPassword(Str(b, "password"), parts[0]) != parts[1])
+        {
+            RecentHits("adminfail:" + ip, TimeSpan.FromMinutes(15), true);
+            RecentHits("adminfail:all", TimeSpan.FromMinutes(15), true);
+            Log("เข้าหน้าแอดมินออนไลน์ไม่สำเร็จ จาก " + ip);
+            throw new ApiError(403, "รหัสไม่ถูกต้อง");
+        }
+        string token = NewToken();
+        lock (AdminSessions) AdminSessions[token] = DateTime.Now + AdminSessionLife;
+        ctx.Response.Headers.Add("Set-Cookie", AdminCookie + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=" + (int)AdminSessionLife.TotalSeconds);
+        Log("เข้าหน้าแอดมินออนไลน์ จาก " + ip);
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    static object AdminLogout(HttpListenerContext ctx)
+    {
+        lock (AdminSessions) AdminSessions.Remove(AdminToken(ctx));
+        ctx.Response.Headers.Add("Set-Cookie", AdminCookie + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    // ตั้ง/เปลี่ยน/ปิด รหัสแอดมิน (เฉพาะเครื่องร้าน) — เปลี่ยนแล้วทุกเครื่องที่เข้าอยู่ต้องเข้าใหม่
+    static object SetAdminPassword(Dictionary<string, object> b)
+    {
+        string pw = Str(b, "password");
+        if (pw.Length == 0)
+            Exec("DELETE FROM dbo.Setting WHERE [Key]='AdminPasswordHash'");
+        else
+        {
+            if (pw.Length < 10) throw new ApiError(400, "รหัสต้องยาวอย่างน้อย 10 ตัวอักษร");
+            if (pw.Distinct().Count() < 5) throw new ApiError(400, "รหัสเดาง่ายเกินไป");
+            var salt = new byte[16];
+            using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(salt);
+            string s64 = Convert.ToBase64String(salt);
+            Exec("UPDATE dbo.Setting SET [Value]=@v WHERE [Key]='AdminPasswordHash'; IF @@ROWCOUNT=0 INSERT dbo.Setting VALUES('AdminPasswordHash',@v)",
+                "@v", s64 + ":" + HashAdminPassword(pw, s64));
+        }
+        lock (AdminSessions) AdminSessions.Clear();
+        Log(pw.Length == 0 ? "ปิดหน้าแอดมินออนไลน์" : "ตั้งรหัสหน้าแอดมินออนไลน์ใหม่");
+        return new Dictionary<string, object> { { "ok", true } };
+    }
+
+    // ตรวจทุกคำขอ API ที่มาจากหน้าแอดมินออนไลน์
+    static void CheckAdminRequest(HttpListenerContext ctx, string route, Dictionary<string, string> s)
+    {
+        // ต้องมี header นี้ (หน้าเว็บส่งเสมอ) — เว็บอื่นส่ง header แปลก ๆ ข้ามโดเมนไม่ได้ กันการแอบสั่งงาน
+        if (ctx.Request.Headers["X-Staff-Pin"] == null) throw new ApiError(400, "คำขอไม่ถูกต้อง");
+        if (RecentHits("adminall:" + ClientIp(ctx), TimeSpan.FromMinutes(1), true) > 300) throw new ApiError(429, "ใช้งานถี่เกินไป กรุณารอสักครู่");
+        if (route == "admin/login" || route == "admin/me" || route == "version" || route == "mode") return;
+        if (!AdminEnabled(s)) throw new AdminLoginRequired("ยังไม่ได้เปิดใช้หน้าแอดมินออนไลน์ (ตั้งรหัสที่เครื่องร้าน)");
+        if (!AdminLoggedIn(ctx)) throw new AdminLoginRequired("กรุณาเข้าสู่ระบบ");
+        if (LocalOnlyRoutes.Contains(route)) throw new ApiError(403, "ทำได้เฉพาะที่เครื่องร้าน");
+        // กันการสุ่ม PIN พนักงานจากนอกร้าน
+        if (RecentHits("pinfail:" + ClientIp(ctx), TimeSpan.FromMinutes(15), false) >= 10) throw new ApiError(429, "ใส่ PIN ผิดหลายครั้ง กรุณารอ 15 นาที");
+    }
+
+    class AdminLoginRequired : ApiError { public AdminLoginRequired(string msg) : base(401, msg) { } }
 
     static void ProxyAcceptLoop(System.Net.Sockets.TcpListener tl, int internalPort)
     {
@@ -718,6 +825,8 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
         Exec(@"
 IF OBJECT_ID('dbo.LineNotify') IS NULL
   CREATE TABLE dbo.LineNotify(CustomerId int NOT NULL PRIMARY KEY, LastOrderId int NOT NULL, BirthdayYear int NOT NULL DEFAULT 0);
+IF COL_LENGTH('dbo.MemberPin','MustChange') IS NULL
+  ALTER TABLE dbo.MemberPin ADD MustChange bit NOT NULL CONSTRAINT DF_MemberPin_MustChange DEFAULT 0;
 IF COL_LENGTH('dbo.CustomerEdit','Notified') IS NULL
 BEGIN
   ALTER TABLE dbo.CustomerEdit ADD Notified bit NOT NULL CONSTRAINT DF_CustomerEdit_Notified DEFAULT 0;
@@ -784,13 +893,14 @@ END");
 
     // ---------- http ----------
 
-    static void Handle(HttpListenerContext ctx, bool pub)
+    // pub = หน้าลูกค้าผ่าน Tunnel / remote = หน้าพนักงานผ่าน Tunnel (ต้องเข้าสู่ระบบ) / ไม่ใช่ทั้งคู่ = เครื่องร้าน
+    static void Handle(HttpListenerContext ctx, bool pub, bool remote = false)
     {
         string route = null;
         try
         {
             string path = ctx.Request.Url.AbsolutePath;
-            if (pub)
+            if (pub || remote)
             {
                 var h = ctx.Response.Headers;
                 h["X-Frame-Options"] = "DENY";
@@ -806,7 +916,8 @@ END");
                     if (!IsPublicRoute(route)) throw new ApiError(404, "ไม่พบหน้านี้");
                     CheckPublicRequest(ctx, route);
                 }
-                WriteJson(ctx, 200, Api(ctx, route, ctx.Request.HttpMethod, pub));
+                if (remote) CheckAdminRequest(ctx, route, Settings());
+                WriteJson(ctx, 200, Api(ctx, route, ctx.Request.HttpMethod, pub, remote));
             }
             else if (pub)
             {
@@ -820,13 +931,16 @@ END");
         catch (ApiError e)
         {
             if (pub && IsPinRoute(route) && e.Status == 403) RecentHits("fail:" + ClientIp(ctx), TimeSpan.FromMinutes(30), true);
-            WriteJson(ctx, e.Status, new Dictionary<string, object> { { "error", e.Message } });
+            if (remote && e.Status == 401 && !(e is AdminLoginRequired)) RecentHits("pinfail:" + ClientIp(ctx), TimeSpan.FromMinutes(15), true); // PIN พนักงานผิด
+            var body = new Dictionary<string, object> { { "error", e.Message } };
+            if (e is AdminLoginRequired) body["login"] = true;
+            WriteJson(ctx, e.Status, body);
         }
         catch (Exception e)
         {
             Log("ERROR " + e.Message);
             // ไม่ส่งรายละเอียดข้อผิดพลาด (เช่น SQL) ออกไปยังอินเทอร์เน็ต
-            try { WriteJson(ctx, 500, new Dictionary<string, object> { { "error", pub ? "ระบบขัดข้อง กรุณาลองใหม่" : e.Message } }); } catch { }
+            try { WriteJson(ctx, 500, new Dictionary<string, object> { { "error", pub || remote ? "ระบบขัดข้อง กรุณาลองใหม่" : e.Message } }); } catch { }
         }
         finally { try { ctx.Response.OutputStream.Close(); } catch { } }
     }
@@ -921,7 +1035,7 @@ END");
             throw new ApiError(401, "ต้องใส่ PIN พนักงาน");
     }
 
-    static object Api(HttpListenerContext ctx, string route, string method, bool pub)
+    static object Api(HttpListenerContext ctx, string route, string method, bool pub, bool remote = false)
     {
         var seg = route.Split('/');
         bool post = method == "POST";
@@ -931,6 +1045,12 @@ END");
 
         var s = Settings();
         if (pub && route == "settings") return new Dictionary<string, object> { { "ShopName", s["ShopName"] } };
+        if (!pub && route == "admin/me")
+            return new Dictionary<string, object> { { "remote", remote }, { "enabled", AdminEnabled(s) }, { "loggedIn", !remote || AdminLoggedIn(ctx) },
+                { "hasPassword", s.ContainsKey("AdminPasswordHash") && s["AdminPasswordHash"].Length > 0 } };
+        if (remote && route == "admin/login" && post) return AdminLogin(ctx, s, Body(ctx));
+        if (remote && route == "admin/logout" && post) return AdminLogout(ctx);
+        if (!pub && !remote && route == "admin/password" && post) { RequirePin(ctx, s); return SetAdminPassword(Body(ctx)); }
         if (route == "update" && !post) return UpdateInfo();
         if (route == "update/check" && post) return CheckUpdate();
         if (route == "update/install" && post)
@@ -959,6 +1079,7 @@ END");
             if (seg[2] == "redeem") return Redeem(s, id, Body(ctx));
             if (seg[2] == "adjust") return Adjust(s, id, Body(ctx));
             if (seg[2] == "pin") return SetMemberPin(id, Body(ctx));
+            if (seg[2] == "temppin") return TempPin(id, Body(ctx));
             if (seg[2] == "edit") return StaffEditCustomer(s, id, Body(ctx));
         }
         if (seg[0] == "orders" && seg.Length == 2) return OrderItems(ParseId(seg[1]));
@@ -968,6 +1089,7 @@ END");
             RequirePin(ctx, s);
             return CancelLedger(ParseId(seg[1]), Str(Body(ctx), "staff"));
         }
+        if (route == "pins/temp-all" && post) { RequirePin(ctx, s); return TempPinAll(s, Body(ctx)); }
         if (route == "edits" && !post) return EditList(Q(ctx, "status"), 0, 300);
         if (seg[0] == "edits" && seg.Length == 3 && post && (seg[2] == "approve" || seg[2] == "reject"))
         {
@@ -1012,7 +1134,7 @@ END");
     static Dictionary<string, object> PublicSettings(Dictionary<string, string> s)
     {
         var d = new Dictionary<string, object>();
-        foreach (var kv in s) if (kv.Key != "StaffPin" && kv.Key != "CloudKey") d[kv.Key] = kv.Value;
+        foreach (var kv in s) if (kv.Key != "StaffPin" && kv.Key != "CloudKey" && kv.Key != "AdminPasswordHash") d[kv.Key] = kv.Value;
         d["HasPin"] = s["StaffPin"].Length > 0;
         d["HasCloudKey"] = s["CloudKey"].Length > 0;
         d["CwPoint"] = CwPointConfig();
@@ -1237,7 +1359,7 @@ WHERE ISNULL(c.IsDelete,0)=0" + (s["IncludeWholesale"] == "1" ? "" : " AND ISNUL
         return new Dictionary<string, object> {
             { "member", m }, { "orders", MemberOrders(s, id, 300) }, { "ledger", CwPoints(s) ? new List<Dictionary<string, object>>() : LedgerList(id, 500) },
             { "pointSource", CwPoints(s) ? "cw" : "own" }, { "edits", EditList("", id, 50) },
-            { "pin", Query("SELECT UpdatedAt, UpdatedBy, FailCount, LockedUntil FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault() } };
+            { "pin", Query("SELECT UpdatedAt, UpdatedBy, FailCount, LockedUntil, MustChange FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault() } };
     }
 
     // บิลของสมาชิก พร้อมยอดสุทธิ (หักคืนสินค้า) และแต้มที่ได้ต่อบิล
@@ -1691,14 +1813,61 @@ WHERE ISNULL(p.IsDelete,0)=0 " + where;
             throw new ApiError(400, "PIN เดาง่ายเกินไป (เช่น 1111, 1234) กรุณาเลือกใหม่");
     }
 
-    static void StorePin(int id, string pin, string by)
+    // mustChange = PIN ชั่วคราวที่พนักงานสุ่มให้ ลูกค้าต้องตั้งใหม่ก่อนดูข้อมูล
+    static void StorePin(int id, string pin, string by, bool mustChange = false)
     {
         var saltBytes = new byte[16];
         using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider()) rng.GetBytes(saltBytes);
         string salt = Convert.ToBase64String(saltBytes);
         Exec(@"DELETE FROM dbo.MemberPin WHERE CustomerId=@id;
-INSERT dbo.MemberPin(CustomerId,PinHash,Salt,UpdatedBy) VALUES(@id,@h,@s,@by)",
-            "@id", id, "@h", HashPin(pin, salt), "@s", salt, "@by", Trunc(by, 100));
+INSERT dbo.MemberPin(CustomerId,PinHash,Salt,UpdatedBy,MustChange) VALUES(@id,@h,@s,@by,@mc)",
+            "@id", id, "@h", HashPin(pin, salt), "@s", salt, "@by", Trunc(by, 100), "@mc", mustChange);
+    }
+
+    // PIN ชั่วคราว 6 หลักแบบสุ่ม (ไม่ใช่แบบเดาง่าย) — แสดงให้พนักงานครั้งเดียว ไม่เก็บตัวเลขจริง
+    static string RandomPin()
+    {
+        var b = new byte[4];
+        using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
+            while (true)
+            {
+                rng.GetBytes(b);
+                string pin = (BitConverter.ToUInt32(b, 0) % 1000000).ToString("D6");
+                try { ValidateNewPin(pin); return pin; } catch (ApiError) { }
+            }
+    }
+
+    static object TempPin(int id, Dictionary<string, object> b)
+    {
+        string staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM " + Cw + "Customer WHERE Id=@id AND ISNULL(IsDelete,0)=0", "@id", id)) == 0) throw new ApiError(404, "ไม่พบสมาชิก");
+        EndSessions(id);
+        string pin = RandomPin();
+        StorePin(id, pin, staff + " (PIN ชั่วคราว)", true);
+        Log("สร้าง PIN ชั่วคราวให้สมาชิก #" + id + " โดย " + staff);
+        return new Dictionary<string, object> { { "pin", pin } };
+    }
+
+    // สร้าง PIN ชั่วคราวให้สมาชิกทุกคนที่มีเบอร์โทรแต่ยังไม่มี PIN
+    static object TempPinAll(Dictionary<string, string> s, Dictionary<string, object> b)
+    {
+        string staff = Str(b, "staff");
+        if (staff.Length == 0) throw new ApiError(400, "กรุณาใส่ชื่อพนักงาน");
+        var list = new List<Dictionary<string, object>>();
+        lock (WriteLock)
+            foreach (var r in Query(@"SELECT c.Id, c.Customer_Code Code, c.FullName, c.Phone FROM " + Cw + @"Customer c
+WHERE ISNULL(c.IsDelete,0)=0 AND LEN(REPLACE(REPLACE(ISNULL(c.Phone,''),'-',''),' ','')) >= 9" +
+                (s["IncludeWholesale"] == "1" ? "" : " AND ISNULL(c.IsWholesaleCustomer,0)=0") + @"
+  AND NOT EXISTS(SELECT 1 FROM dbo.MemberPin m WHERE m.CustomerId=c.Id) ORDER BY c.Id"))
+            {
+                string pin = RandomPin();
+                StorePin(Convert.ToInt32(r["Id"]), pin, staff + " (PIN ชั่วคราว)", true);
+                r["Pin"] = pin;
+                list.Add(r);
+            }
+        Log("สร้าง PIN ชั่วคราว " + list.Count + " คน โดย " + staff);
+        return list;
     }
 
     static object SetMemberPin(int id, Dictionary<string, object> b)
@@ -1755,7 +1924,7 @@ WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
 
     // ---------- พื้นที่สมาชิก: เข้าด้วยเบอร์ + PIN แล้วได้ token ใช้ต่อ 15 นาที (นับใหม่ทุกครั้งที่ใช้งาน) ----------
 
-    class MemberSession { public int CustomerId; public DateTime Expires; }
+    class MemberSession { public int CustomerId; public DateTime Expires; public bool MustChange; }
     static readonly Dictionary<string, MemberSession> Sessions = new Dictionary<string, MemberSession>();
     static readonly TimeSpan SessionIdle = TimeSpan.FromMinutes(15);
 
@@ -1772,7 +1941,8 @@ WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
         return auth.StartsWith("Bearer ") ? auth.Substring(7).Trim() : "";
     }
 
-    static int SessionCustomer(HttpListenerContext ctx)
+    // allowMustChange = ใช้ได้แม้ยังเป็น PIN ชั่วคราว (เฉพาะหน้าเปลี่ยน PIN)
+    static int SessionCustomer(HttpListenerContext ctx, bool allowMustChange = false)
     {
         string token = BearerToken(ctx);
         lock (Sessions)
@@ -1781,6 +1951,7 @@ WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
             MemberSession s;
             if (token.Length == 0 || !Sessions.TryGetValue(token, out s)) throw new ApiError(401, "หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่");
             s.Expires = DateTime.Now + SessionIdle;
+            if (s.MustChange && !allowMustChange) throw new ApiError(409, "กรุณาตั้ง PIN ใหม่ก่อนใช้งาน");
             return s.CustomerId;
         }
     }
@@ -1795,7 +1966,14 @@ WHERE CustomerId=@id", "@id", c["Id"], "@lock", PinLockAfter);
     {
         int id = VerifyMemberPin(Str(b, "phone"), Str(b, "pin"));
         string token = NewToken();
-        lock (Sessions) Sessions[token] = new MemberSession { CustomerId = id, Expires = DateTime.Now + SessionIdle };
+        bool must = Convert.ToBoolean(Scalar("SELECT MustChange FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id) ?? false);
+        lock (Sessions) Sessions[token] = new MemberSession { CustomerId = id, Expires = DateTime.Now + SessionIdle, MustChange = must };
+        if (must) // PIN ชั่วคราว: ยังไม่ให้เห็นข้อมูล ให้ตั้ง PIN ใหม่ก่อน
+        {
+            var row = Query("SELECT FullName FROM " + Cw + "Customer WHERE Id=@id", "@id", id).FirstOrDefault();
+            return new Dictionary<string, object> { { "mustChange", true }, { "token", token },
+                { "name", MaskName(row == null ? "" : (string)row["FullName"]) } };
+        }
         var res = MyProfile(s, id);
         res["token"] = token;
         return res;
@@ -1854,7 +2032,7 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
 
     static object MyChangePin(HttpListenerContext ctx, Dictionary<string, object> b)
     {
-        int id = SessionCustomer(ctx);
+        int id = SessionCustomer(ctx, true);
         string current = Str(b, "current"), fresh = Str(b, "pin");
         var row = Query("SELECT PinHash, Salt FROM dbo.MemberPin WHERE CustomerId=@id", "@id", id).FirstOrDefault();
         if (row == null || HashPin(current, (string)row["Salt"]) != (string)row["PinHash"])
@@ -1865,7 +2043,11 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
         // ออกจากระบบเครื่องอื่นที่อาจค้างอยู่ คงไว้แค่เครื่องนี้
         string mine = BearerToken(ctx);
         lock (Sessions)
+        {
             foreach (var k in Sessions.Where(kv => kv.Value.CustomerId == id && kv.Key != mine).Select(kv => kv.Key).ToList()) Sessions.Remove(k);
+            MemberSession cur;
+            if (Sessions.TryGetValue(mine, out cur)) cur.MustChange = false; // ตั้ง PIN ของตัวเองแล้ว ใช้งานต่อได้
+        }
         Log("สมาชิก #" + id + " เปลี่ยน PIN เอง");
         return new Dictionary<string, object> { { "ok", true } };
     }
@@ -2030,7 +2212,7 @@ VALUES(@c,@f,@o,@n,'member','pending',@note,@at)", "@c", cid, "@f", key, "@o", c
                         if ((string)it["kind"] == "pin")
                         {
                             DateTime at = DateTime.ParseExact((string)d["pin_at"], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-                            int n = Exec(@"UPDATE dbo.MemberPin SET PinHash=@h, Salt=@s, UpdatedAt=@at, UpdatedBy=N'ลูกค้าเปลี่ยนเอง (ออนไลน์)', FailCount=0, LockedUntil=NULL
+                            int n = Exec(@"UPDATE dbo.MemberPin SET PinHash=@h, Salt=@s, UpdatedAt=@at, UpdatedBy=N'ลูกค้าเปลี่ยนเอง (ออนไลน์)', FailCount=0, LockedUntil=NULL, MustChange=0
 WHERE CustomerId=@c AND UpdatedAt < @at", "@h", (string)d["hash"], "@s", (string)d["salt"], "@at", at, "@c", cid);
                             if (n > 0) { EndSessions(cid); Log("สมาชิก #" + cid + " เปลี่ยน PIN เอง (ออนไลน์)"); }
                         }
@@ -2044,7 +2226,7 @@ WHERE CustomerId=@c AND UpdatedAt < @at", "@h", (string)d["hash"], "@s", (string
                 // 2) ส่งข้อมูลสมาชิกที่มี PIN ขึ้นไป (เฉพาะที่เปลี่ยน)
                 var pushed = new Dictionary<string, string>();
                 foreach (var r in Query("SELECT Kind, Id, Hash FROM dbo.CloudPushed")) pushed[(string)r["Kind"] + r["Id"]] = (string)r["Hash"];
-                var rows = Query(@"SELECT m.CustomerId, m.PinHash, m.Salt, m.UpdatedAt, m.FailCount, c.Phone
+                var rows = Query(@"SELECT m.CustomerId, m.PinHash, m.Salt, m.UpdatedAt, m.FailCount, m.MustChange, c.Phone
 FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL(c.IsDelete,0)=0");
                 var members = new List<object>();
                 var all = new List<int>();
@@ -2069,7 +2251,8 @@ FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL
                         if (i["ProductId"] != null && Convert.ToInt32(i["HasInfo"]) == 1) drugIds.Add(Convert.ToInt32(i["ProductId"]));
                     var m = new Dictionary<string, object> {
                         { "cid", cid }, { "phone", phone }, { "pin_hash", r["PinHash"] }, { "salt", r["Salt"] },
-                        { "pin_at", r["UpdatedAt"] }, { "blocked", Convert.ToInt32(r["FailCount"]) >= PinBlockAfter }, { "data", data } };
+                        { "pin_at", r["UpdatedAt"] }, { "blocked", Convert.ToInt32(r["FailCount"]) >= PinBlockAfter },
+                        { "must_change", Convert.ToBoolean(r["MustChange"]) }, { "data", data } };
                     string h = Sha256Hex(Json.Serialize(m));
                     string old;
                     if (pushed.TryGetValue("m" + cid, out old) && old == h) continue;

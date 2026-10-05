@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="64 150 336 162" role="img" aria-label="มุมยาเภสัช Mumya Pharmacy">
+  <g fill="none" stroke="#3b4045" stroke-width="3.6" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M101 297 V216 L157 168 L214 218"/>
+    <path d="M128 297 H140"/>
+  </g>
+  <text x="139" y="263" font-family="Anuphan, 'Noto Sans Thai', 'Leelawadee UI', Tahoma, sans-serif" font-size="47" font-weight="600" fill="#3b4045">มุมยาเภสัช</text>
+  <text x="152" y="289" font-family="'Noto Sans', 'Segoe UI', Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="3.4" fill="#3b4045">MUMYA PHARMACY</text>
+  <g transform="rotate(-28 101 268)">
+    <rect x="76" y="258" width="50" height="21" rx="10.5" fill="#f4c430"/>
+    <path d="M101 258 H115.5 A10.5 10.5 0 0 1 115.5 279 H101 Z" fill="#e5412f"/>
+  </g>
+  <ellipse cx="88" cy="298" rx="15" ry="8.5" fill="#8cc63f"/>
+  <path d="M78 298 H98" stroke="#5f9a22" stroke-width="1.6"/>
+  <circle cx="115" cy="292" r="12.5" fill="#3a86c8"/>
+  <path d="M107 300 L123 284" stroke="#dbe9f6" stroke-width="2"/>
+</svg>

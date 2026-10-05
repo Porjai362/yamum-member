@@ -100,7 +100,8 @@ async function newToken(env, m) {
   const payload = `${m.cid}.${m.pin_ver}.${nowSec() + SESSION_SEC}`;
   return payload + '.' + await sign(env, payload);
 }
-async function session(req, env) {
+// allowMustChange = ใช้ได้แม้ยังเป็น PIN ชั่วคราว (เฉพาะเปลี่ยน PIN)
+async function session(req, env, allowMustChange = false) {
   const auth = req.headers.get('Authorization') || '';
   const t = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
   const parts = t.split('.');
@@ -110,10 +111,21 @@ async function session(req, env) {
   if (!sameText(await sign(env, payload), parts[3]) || +parts[2] < nowSec()) throw expired;
   const m = await env.DB.prepare('SELECT * FROM member WHERE cid=?').bind(+parts[0]).first();
   if (!m || m.pin_ver !== +parts[1] || m.blocked) throw expired;
+  if (m.must_change && !allowMustChange) throw new ApiError(409, 'กรุณาตั้ง PIN ใหม่ก่อนใช้งาน');
   return m;
 }
 
+// ช่อง must_change (PIN ชั่วคราว) เพิ่มมาทีหลัง — ตารางเดิมยังไม่มี
+let memberColsReady = false;
+async function ensureMemberCols(env) {
+  if (memberColsReady) return;
+  try { await env.DB.prepare('ALTER TABLE member ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0').run(); } catch { /* มีแล้ว */ }
+  memberColsReady = true;
+}
+
 async function profile(env, m) {
+  // PIN ชั่วคราว: ยังไม่ส่งข้อมูลใด ๆ ให้ ต้องตั้ง PIN ใหม่ก่อน
+  if (m.must_change) return { mustChange: true, name: JSON.parse(m.data).name, token: await newToken(env, m) };
   const d = JSON.parse(m.data);
   d.SyncedAt = await kvGet(env, 'lastSync'); // เวลาที่คอมร้านส่งข้อมูลล่าสุด
   d.token = await newToken(env, m); // ต่ออายุทุกครั้งที่ใช้งาน
@@ -237,7 +249,8 @@ async function login(env, b) {
 }
 
 async function changePin(req, env, b) {
-  const m = await session(req, env);
+  const m = await session(req, env, true);
+  await ensureMemberCols(env);
   const current = str(b, 'current'), fresh = str(b, 'pin');
   if (!sameText(await hashPin(current, m.salt), m.pin_hash)) throw new ApiError(403, 'PIN ปัจจุบันไม่ถูกต้อง');
   validateNewPin(fresh);
@@ -245,7 +258,7 @@ async function changePin(req, env, b) {
   const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
   const hash = await hashPin(fresh, salt), at = nowTh();
   await env.DB.batch([
-    env.DB.prepare('UPDATE member SET pin_hash=?, salt=?, pin_at=?, pin_ver=pin_ver+1, fail=0, locked_until=0 WHERE cid=?').bind(hash, salt, at, m.cid),
+    env.DB.prepare('UPDATE member SET pin_hash=?, salt=?, pin_at=?, pin_ver=pin_ver+1, fail=0, locked_until=0, must_change=0 WHERE cid=?').bind(hash, salt, at, m.cid),
     env.DB.prepare('INSERT INTO outbox(kind,cid,data,created) VALUES(?,?,?,?)').bind('pin', m.cid, JSON.stringify({ hash, salt, pin_at: at }), at),
   ]);
   // ลูกค้าเปลี่ยน PIN เอง: LINE ที่ผูกไว้ยังใช้ต่อได้
@@ -327,16 +340,18 @@ async function sync(req, env, route) {
   const st = [], at = nowTh();
   for (const [k, v] of Object.entries(b.settings || {}))
     st.push(env.DB.prepare('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').bind(k, String(v)));
+  if ((b.members || []).length) await ensureMemberCols(env);
   for (const m of b.members || [])
-    st.push(env.DB.prepare(`INSERT INTO member(cid,phone,pin_hash,salt,pin_at,pin_ver,blocked,data,updated) VALUES(?,?,?,?,?,1,?,?,?)
+    st.push(env.DB.prepare(`INSERT INTO member(cid,phone,pin_hash,salt,pin_at,pin_ver,blocked,data,updated,must_change) VALUES(?,?,?,?,?,1,?,?,?,?)
 ON CONFLICT(cid) DO UPDATE SET phone=excluded.phone, blocked=excluded.blocked, data=excluded.data, updated=excluded.updated,
+  must_change=CASE WHEN excluded.pin_at > member.pin_at THEN excluded.must_change ELSE member.must_change END,
   pin_hash=CASE WHEN excluded.pin_at > member.pin_at THEN excluded.pin_hash ELSE member.pin_hash END,
   salt=CASE WHEN excluded.pin_at > member.pin_at THEN excluded.salt ELSE member.salt END,
   pin_ver=CASE WHEN excluded.pin_at > member.pin_at THEN member.pin_ver + 1 ELSE member.pin_ver END,
   fail=CASE WHEN excluded.pin_at > member.pin_at THEN 0 ELSE member.fail END,
   locked_until=CASE WHEN excluded.pin_at > member.pin_at THEN 0 ELSE member.locked_until END,
   pin_at=CASE WHEN excluded.pin_at > member.pin_at THEN excluded.pin_at ELSE member.pin_at END`)
-      .bind(m.cid, m.phone, m.pin_hash, m.salt, m.pin_at, m.blocked ? 1 : 0, JSON.stringify(m.data), at));
+      .bind(m.cid, m.phone, m.pin_hash, m.salt, m.pin_at, m.blocked ? 1 : 0, JSON.stringify(m.data), at, m.must_change ? 1 : 0));
   for (const d of b.drugs || [])
     st.push(env.DB.prepare('INSERT INTO drug(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').bind(d.id, JSON.stringify(d.data)));
   // รายชื่อทั้งหมดที่ยังมี PIN อยู่ — คนที่ถูกยกเลิก PIN ที่ร้านจะถูกลบออกจากระบบออนไลน์

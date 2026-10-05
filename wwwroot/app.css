@@ -20,7 +20,9 @@ a { color: var(--brand); }
 .status.ok::before { content: "● "; color: #7dffc4; }
 .status.err::before { content: "● "; color: #ffb3a8; }
 .quick { flex: 1; max-width: 560px; min-width: 260px; }
-.quick input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 0; font-size: 16px; }
+.quick input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 0; font-size: 16px; background: #fff; color: var(--ink); }
+.quick input::placeholder { color: var(--muted); opacity: 1; }
+input, select, textarea { color: var(--ink); }
 
 .tabs { display: flex; gap: 4px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .tabs a { padding: 12px 14px; text-decoration: none; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
@@ -66,7 +68,7 @@ tr.cancelled td { color: #aab; text-decoration: line-through; }
 .chip { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
-.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
 .btn:hover { border-color: var(--brand); }
 .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
 .btn.danger { color: var(--danger); }
@@ -125,3 +127,8 @@ label.f input, label.f select, label.f textarea { padding: 8px 12px; border: 1px
   .m-head .row { flex-wrap: wrap; }
 }
 body { overflow-x: hidden; }
+.login-card { max-width: 380px; margin: 60px auto; display: grid; gap: 10px; }
+
+.brand-logo { height: 52px; width: auto; display: block; flex: none; background: #fff; border-radius: 10px; padding: 3px 10px; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
