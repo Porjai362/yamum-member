@@ -44,6 +44,30 @@
 - หน้าเว็บลูกค้า (check.html) ส่งขึ้นไปพร้อมข้อมูล อัปเดตโปรแกรมแล้วหน้าออนไลน์เปลี่ยนตามเอง ไม่ต้องแก้ Worker
 - คีย์ซิงก์รั่ว → กด "สร้างคีย์ใหม่" แล้วใส่ SYNC_KEY ใหม่ใน Cloudflare
 
+### เข้าผ่าน LINE (LIFF) — v1.10.0
+ลูกค้ากดเมนูใน LINE OA ของร้าน → หน้าสมาชิกเปิดใน LINE · ครั้งแรกใส่เบอร์ + PIN เพื่อผูกบัญชี ครั้งต่อไปเข้าได้ทันที
+1. developers.line.biz → Provider ของร้าน → **Create a new channel → LINE Login** (เลือก Web app)
+2. ในช่องนั้น → แท็บ **LIFF → Add**: Size `Full`, Endpoint URL `https://mumyamember.online/`, Scopes ติ๊ก `openid` และ `profile` → Add → จด **LIFF ID**
+3. แท็บ **Basic settings** → จด **Channel ID** แล้วกด **Publish** ช่อง (ให้คนทั่วไปใช้ได้)
+4. Cloudflare → Worker → Settings → Variables and Secrets → เพิ่ม 2 ตัว (Type: Text): `LIFF_ID` = LIFF ID, `LINE_CHANNEL_ID` = Channel ID → Deploy
+5. วางโค้ด `cloud/worker.js` เวอร์ชันใหม่ใน Worker แล้ว Deploy (ตาราง line_link สร้างให้เอง)
+6. LINE Official Account Manager → Rich menu → ใส่ลิงก์ `https://liff.line.me/<LIFF ID>`
+
+ความปลอดภัย: ผูก LINE ต้องใส่ PIN ถูกก่อน · พนักงานตั้ง PIN ใหม่/ยกเลิก PIN ที่ร้าน = การผูก LINE เดิมถูกยกเลิก · ลูกค้ากด "ยกเลิก" การผูกเองได้
+
+### แจ้งเตือนผ่าน LINE OA + webhook — v1.11.0
+- **แจ้งเตือน (push)**: ได้/ใช้แต้มหลังซื้อของ (การ์ดสวย ๆ พร้อมปุ่มเปิดหน้าสมาชิก), ผลคำขอแก้ไขข้อมูล, อวยพรเดือนเกิดปีละครั้ง
+  ส่งเฉพาะลูกค้าที่ผูก LINE แล้วและเปิดรับแจ้งเตือน (ปิดเองได้ที่หน้าสมาชิก) · นับโควตาข้อความรายเดือนของ LINE OA
+  เปิด/ปิดแต่ละแบบได้ที่ ตั้งค่า → หน้าสมาชิกออนไลน์ · ครั้งแรกไม่ส่งย้อนหลัง
+- **Webhook (ตอบอัตโนมัติ ไม่นับโควตา)**: ทักทายเมื่อเพิ่มเพื่อน · พิมพ์ "แต้ม" ตอบยอดแต้ม · พิมพ์ "สมาชิก" ส่งลิงก์หน้าสมาชิก
+
+ตั้งค่า (ต้องตั้ง LIFF ข้างบนก่อน):
+1. LINE Official Account Manager → Settings → **Messaging API → Enable** → เลือก **Provider เดียวกับ LINE Login channel** (สำคัญ: ไม่งั้นรหัสผู้ใช้ไม่ตรงกัน ส่งแจ้งเตือนไม่ได้)
+2. developers.line.biz → channel Messaging API ที่ได้ → แท็บ Basic settings: จด **Channel secret** · แท็บ Messaging API: กด Issue **Channel access token (long-lived)**
+3. Cloudflare → Worker → Variables and Secrets → เพิ่ม **Secret** 2 ตัว: `LINE_CHANNEL_SECRET`, `LINE_MESSAGING_TOKEN` → Deploy
+4. แท็บ Messaging API → **Webhook URL** `https://mumyamember.online/line/webhook` → Verify → เปิด **Use webhook**
+5. (แนะนำ) LINE Login channel → **Linked LINE Official Account** = OA ของร้าน และใน LIFF ตั้ง **Add friend option = On (aggressive)** ให้ลูกค้าเพิ่มเพื่อนตอนเปิดหน้าสมาชิก
+
 ## แก้ไขข้อมูลลูกค้า → บันทึกลง CW (v1.8.0)
 ช่องที่แก้ได้: เบอร์โทร · อีเมล · ที่อยู่ · วันเกิด · แพ้ยา · โรคประจำตัว (เขียนลง `Customer` ของ CW)
 - **พนักงาน**: เปิดสมาชิก → ✏️ แก้ไขข้อมูล → บันทึกลง CW ทันที (แก้แพ้ยามีถามยืนยันอีกครั้ง)

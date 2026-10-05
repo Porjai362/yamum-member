@@ -16,7 +16,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 
 // เปลี่ยนเลขเวอร์ชันตรงนี้ทุกครั้งก่อนปล่อยอัปเดต (publish.ps1 อ่านจากบรรทัดนี้)
-[assembly: System.Reflection.AssemblyVersion("1.9.0")]
+[assembly: System.Reflection.AssemblyVersion("1.11.0")]
 [assembly: System.Reflection.AssemblyTitle("ระบบสมาชิก ร้านยามุมยาเภสัช")]
 [assembly: System.Reflection.AssemblyProduct("YaMumMember")]
 
@@ -49,6 +49,9 @@ static class App
         new[] { "PointSource", "cw" },
         new[] { "CloudUrl", "" },
         new[] { "CloudKey", "" },
+        new[] { "LineNotifyPoints", "1" },
+        new[] { "LineNotifyEdits", "1" },
+        new[] { "LineNotifyBirthday", "1" },
     };
 
     // โปรแกรมทำงานเบื้องหลัง มีไอคอนที่ถาดระบบ (มุมขวาล่าง) แทนหน้าต่างดำ — ปิดผิดไม่ได้ ปิดจากเมนูไอคอนเท่านั้น
@@ -711,6 +714,15 @@ IF OBJECT_ID('dbo.MemberPin') IS NULL
     CustomerId int NOT NULL PRIMARY KEY, PinHash varchar(100) NOT NULL, Salt varchar(50) NOT NULL,
     FailCount int NOT NULL DEFAULT 0, LockedUntil datetime NULL,
     UpdatedAt datetime NOT NULL DEFAULT GETDATE(), UpdatedBy nvarchar(100) NULL);");
+        // แจ้งเตือน LINE (v1.11): สถานะที่แจ้งแล้ว / คำขอแก้ไขเก่าถือว่าแจ้งแล้ว (ไม่ส่งย้อนหลัง)
+        Exec(@"
+IF OBJECT_ID('dbo.LineNotify') IS NULL
+  CREATE TABLE dbo.LineNotify(CustomerId int NOT NULL PRIMARY KEY, LastOrderId int NOT NULL, BirthdayYear int NOT NULL DEFAULT 0);
+IF COL_LENGTH('dbo.CustomerEdit','Notified') IS NULL
+BEGIN
+  ALTER TABLE dbo.CustomerEdit ADD Notified bit NOT NULL CONSTRAINT DF_CustomerEdit_Notified DEFAULT 0;
+  EXEC('UPDATE dbo.CustomerEdit SET Notified=1');
+END");
         foreach (var kv in DefaultSettings)
             Exec("IF NOT EXISTS(SELECT 1 FROM dbo.Setting WHERE [Key]=@k) INSERT dbo.Setting([Key],[Value]) VALUES(@k,@v)", "@k", kv[0], "@v", kv[1]);
         if (Convert.ToInt32(Scalar("SELECT COUNT(*) FROM dbo.Reward")) == 0)
@@ -1870,7 +1882,38 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
 
     static readonly object CloudLock = new object();
     static string CloudLastOk, CloudLastError;
-    static int CloudMembers, CloudLastPushed;
+    static int CloudMembers, CloudLastPushed, CloudNotified;
+
+    // หาเรื่องที่ต้องแจ้งลูกค้าทาง LINE: บิลใหม่ที่ได้/ใช้แต้ม และอวยพรเดือนเกิด (ปีละครั้ง)
+    // ครั้งแรกที่เจอสมาชิก แค่จำบิลล่าสุดไว้ ไม่แจ้งย้อนหลัง · ปิดการแจ้งเตือนอยู่ก็ยังเลื่อนสถานะ (เปิดทีหลังไม่ส่งของเก่าทีเดียว)
+    static void CollectNotifications(Dictionary<string, string> s, int cid, Dictionary<string, object> data,
+        Dictionary<int, int[]> state, List<object> notify, Dictionary<int, int[]> updates)
+    {
+        var bills = (List<Dictionary<string, object>>)data["Bills"];
+        int maxId = bills.Count > 0 ? bills.Max(b => Convert.ToInt32(b["Id"])) : 0;
+        int year = DateTime.Now.Year;
+        bool bday = data["BirthdayMonth"] is bool && (bool)data["BirthdayMonth"];
+        int[] st;
+        if (!state.TryGetValue(cid, out st))
+        {
+            updates[cid] = new[] { maxId, bday ? year : 0 };
+            return;
+        }
+        int last = st[0], bYear = st[1];
+        if (s["LineNotifyPoints"] == "1")
+            foreach (var b in bills.Where(b => Convert.ToInt32(b["Id"]) > last).OrderBy(b => Convert.ToInt32(b["Id"])))
+            {
+                double rec = Convert.ToDouble(b["Points"]), pay = Convert.ToDouble(b["PayPoints"]);
+                DateTime d;
+                if ((rec == 0 && pay == 0) || !DateTime.TryParse((string)b["Date"], CultureInfo.InvariantCulture, DateTimeStyles.None, out d) || d < DateTime.Now.AddDays(-3)) continue;
+                notify.Add(new Dictionary<string, object> { { "cid", cid }, { "kind", "points" }, { "code", b["Code"] }, { "net", b["Net"] },
+                    { "rec", rec }, { "pay", pay }, { "balance", data["Points"] } });
+            }
+        if (bday && bYear != year && s["LineNotifyBirthday"] == "1")
+            notify.Add(new Dictionary<string, object> { { "cid", cid }, { "kind", "birthday" }, { "name", data["name"] } });
+        int newLast = Math.Max(last, maxId), newYear = bday ? year : bYear;
+        if (newLast != last || newYear != bYear) updates[cid] = new[] { newLast, newYear };
+    }
 
     static void CloudLoop()
     {
@@ -1888,7 +1931,8 @@ ORDER BY o.Date_Order DESC, oi.Id", "@cid", id);
         var s = Settings();
         return new Dictionary<string, object> {
             { "enabled", s["CloudUrl"].Length > 0 && s["CloudKey"].Length > 0 }, { "url", s["CloudUrl"] },
-            { "lastOk", CloudLastOk }, { "lastError", CloudLastError }, { "members", CloudMembers }, { "lastPushed", CloudLastPushed } };
+            { "lastOk", CloudLastOk }, { "lastError", CloudLastError }, { "members", CloudMembers }, { "lastPushed", CloudLastPushed },
+            { "notified", CloudNotified } };
     }
 
     // สร้างคีย์ใหม่ (ต้องนำไปใส่เป็น Secret SYNC_KEY ใน Cloudflare Worker)
@@ -2006,6 +2050,12 @@ FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL
                 var all = new List<int>();
                 var drugIds = new HashSet<int>();
                 var newHash = new List<object[]>();
+                // แจ้งเตือน LINE: สถานะล่าสุดที่แจ้งไปแล้วของแต่ละคน (บิลล่าสุด / ปีที่อวยพรวันเกิด)
+                var notifyState = new Dictionary<int, int[]>();
+                foreach (var r in Query("SELECT CustomerId, LastOrderId, BirthdayYear FROM dbo.LineNotify"))
+                    notifyState[Convert.ToInt32(r["CustomerId"])] = new[] { Convert.ToInt32(r["LastOrderId"]), Convert.ToInt32(r["BirthdayYear"]) };
+                var notify = new List<object>();
+                var stateUpdates = new Dictionary<int, int[]>();
                 foreach (var r in rows)
                 {
                     int cid = Convert.ToInt32(r["CustomerId"]);
@@ -2014,6 +2064,7 @@ FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL
                     Dictionary<string, object> data;
                     try { data = MyProfile(s, cid); } catch (ApiError) { continue; }
                     all.Add(cid);
+                    CollectNotifications(s, cid, data, notifyState, notify, stateUpdates);
                     foreach (Dictionary<string, object> i in (List<Dictionary<string, object>>)data["Items"])
                         if (i["ProductId"] != null && Convert.ToInt32(i["HasInfo"]) == 1) drugIds.Add(Convert.ToInt32(i["ProductId"]));
                     var m = new Dictionary<string, object> {
@@ -2055,6 +2106,29 @@ FROM dbo.MemberPin m JOIN " + Cw + "Customer c ON c.Id=m.CustomerId WHERE ISNULL
                     }
                     result = CloudCall(url + "/sync/push", key, b);
                 }
+                // ผลคำขอแก้ไขที่ลูกค้าส่งมา (อนุมัติ/ไม่อนุมัติ) ภายใน 3 วัน ที่ยังไม่ได้แจ้ง
+                var editIds = new List<int>();
+                foreach (var e in Query(@"SELECT Id, CustomerId, Field, Status, Note FROM dbo.CustomerEdit
+WHERE Source='member' AND Status IN ('approved','rejected') AND Notified=0 AND DecidedAt >= DATEADD(day,-3,GETDATE())"))
+                {
+                    editIds.Add(Convert.ToInt32(e["Id"]));
+                    if (s["LineNotifyEdits"] == "1" && all.Contains(Convert.ToInt32(e["CustomerId"])))
+                        notify.Add(new Dictionary<string, object> { { "cid", e["CustomerId"] }, { "kind", "edit" }, { "field", e["Field"] },
+                            { "status", e["Status"] }, { "note", (string)e["Status"] == "rejected" ? (e["Note"] ?? "") : "" } });
+                }
+                int sent = 0;
+                for (int i = 0; i < notify.Count; i += 30)
+                {
+                    var nr = CloudCall(url + "/sync/push", key, new Dictionary<string, object> { { "notify", notify.Skip(i).Take(30).ToList() } }) as Dictionary<string, object>;
+                    if (nr != null && nr.ContainsKey("sent")) sent += Convert.ToInt32(nr["sent"]);
+                }
+                foreach (var kv in stateUpdates)
+                    Exec("UPDATE dbo.LineNotify SET LastOrderId=@o, BirthdayYear=@y WHERE CustomerId=@c; IF @@ROWCOUNT=0 INSERT dbo.LineNotify(CustomerId,LastOrderId,BirthdayYear) VALUES(@c,@o,@y)",
+                        "@c", kv.Key, "@o", kv.Value[0], "@y", kv.Value[1]);
+                if (editIds.Count > 0)
+                    Exec("UPDATE dbo.CustomerEdit SET Notified=1 WHERE Id IN (" + string.Join(",", editIds) + ")"); // เลข Id ล้วน
+                CloudNotified += sent;
+                if (sent > 0) Log("แจ้งเตือน LINE " + sent + " ข้อความ");
                 foreach (var h in newHash)
                     Exec("UPDATE dbo.CloudPushed SET Hash=@h WHERE Kind=@k AND Id=@id; IF @@ROWCOUNT=0 INSERT dbo.CloudPushed(Kind,Id,Hash) VALUES(@k,@id,@h)",
                         "@k", h[0], "@id", h[1], "@h", h[2]);

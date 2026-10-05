@@ -551,6 +551,12 @@ async function viewSettings() {
     <div class="form-grid">
     ${fld('CloudUrl', 'ที่อยู่เว็บออนไลน์', 'url', 'placeholder="https://member.mumyamember.online"')}
     <div class="small"><div>คีย์ซิงก์: ${s.HasCloudKey ? '<b>ตั้งไว้แล้ว</b>' : '<b style="color:var(--danger)">ยังไม่ได้สร้าง</b>'}</div><div id="cloudInfo" class="muted">กำลังโหลด…</div></div>
+  </div>
+  <h3 style="margin-top:16px">แจ้งเตือนลูกค้าทาง LINE OA</h3>
+  <p class="small muted" style="margin-top:0">ส่งเฉพาะลูกค้าที่ผูก LINE แล้วและเปิดรับแจ้งเตือน · ใช้โควตาข้อความรายเดือนของ LINE OA (ตั้งค่า LINE ใน Cloudflare ดู README)</p>
+  <div class="form-grid">
+    ${[['LineNotifyPoints', 'ได้/ใช้แต้มหลังซื้อของ'], ['LineNotifyEdits', 'ผลคำขอแก้ไขข้อมูล'], ['LineNotifyBirthday', 'อวยพรเดือนเกิด (ปีละครั้ง)']]
+      .map(([k, t]) => `<label class="f">${t}<select name="${k}"><option value="1">ส่ง</option><option value="0">ไม่ส่ง</option></select></label>`).join('')}
   </div><div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
     <button type="button" class="btn" id="cloudKey">${s.HasCloudKey ? 'สร้างคีย์ใหม่' : 'สร้างคีย์ซิงก์'}</button>
     <button type="button" class="btn" id="cloudSync">ซิงก์ตอนนี้</button>
@@ -565,6 +571,7 @@ async function viewSettings() {
   const f = $('#sf');
   f.IncludeWholesale.value = s.IncludeWholesale;
   f.AutoUpdate.value = s.AutoUpdate;
+  ['LineNotifyPoints', 'LineNotifyEdits', 'LineNotifyBirthday'].forEach(k => f[k].value = s[k] === '0' ? '0' : '1');
   f.PointSource.value = s.PointSource === 'own' ? 'own' : 'cw';
   const c = s.CwPoint || {};
   const today = new Date().toISOString().slice(0, 10);
@@ -601,6 +608,7 @@ async function viewSettings() {
   const showCloud = c => {
     $('#cloudInfo').innerHTML = !c.enabled ? 'ยังไม่ได้เปิดใช้ (ใส่ที่อยู่เว็บ + สร้างคีย์ แล้วบันทึก)'
       : `ซิงก์สำเร็จล่าสุด: ${c.lastOk ? dateTimeTh(c.lastOk) : '-'} · สมาชิกออนไลน์ ${int(c.members)} คน`
+        + (c.notified ? ` · ส่งแจ้งเตือน LINE แล้ว ${int(c.notified)} ข้อความ (ตั้งแต่เปิดโปรแกรม)` : '')
         + (c.lastError ? `<div style="color:var(--danger)">${esc(c.lastError)}</div>` : '');
   };
   api('cloud/status').then(showCloud).catch(() => {});

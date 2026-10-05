@@ -19,3 +19,5 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 -- สิ่งที่ลูกค้าทำออนไลน์ (เปลี่ยน PIN / ขอแก้ข้อมูล) รอโปรแกรมร้านมารับ
 CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, cid INTEGER NOT NULL, data TEXT NOT NULL, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS hits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, reset INTEGER NOT NULL);
+-- เข้าผ่าน LINE: บัญชี LINE ที่ผูกกับสมาชิก (Worker สร้างให้เองถ้ายังไม่มี)
+CREATE TABLE IF NOT EXISTS line_link (sub TEXT PRIMARY KEY, cid INTEGER NOT NULL, pin_ver INTEGER NOT NULL, created TEXT NOT NULL);

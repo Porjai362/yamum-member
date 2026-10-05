@@ -2,61 +2,138 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>สมาชิก</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a5a45">
+<title>สมาชิก ยามุมยาเภสัช</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600&display=swap">
 <style>
-  :root { --brand: #0f7a5f; --brand-2: #e6f4ef; --ink: #1d2b28; --muted: #6b7c78; --line: #e2e9e7;
-    --danger: #c0392b; --danger-bg: #fdecea; --warn: #8a5a00; --warn-bg: #fff6e0;
-    --member: #7a8a86; --silver: #8d99ae; --gold: #c9971c; --platinum: #4b3f8f; }
-  * { box-sizing: border-box; }
-  html { background: #0b5a47; }
-  body { margin: 0; min-height: 100vh; background: linear-gradient(160deg, #0f7a5f, #0b5a47); color: var(--ink);
-    font: 17px/1.55 "Leelawadee UI", "Sarabun", "Noto Sans Thai", Tahoma, sans-serif; padding: 16px; overflow-x: hidden; }
-  .box { background: #fff; border-radius: 20px; width: min(620px, 100%); margin: 0 auto; padding: 22px 22px 26px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
-  h1 { font-size: 22px; margin: 0; color: var(--brand); text-align: center; }
-  h2 { font-size: 19px; margin: 0; }
-  h3 { font-size: 15px; margin: 0 0 6px; }
+  /* โทนร้านยา: เขียวเข้ม + มิ้นต์ / การ์ดสมาชิกเปลี่ยนสีตามระดับ / ภาพเคลื่อนไหวปิดเองถ้าเครื่องตั้งลดการเคลื่อนไหว */
+  :root {
+    --deep: #073d30; --brand: #0c6b53; --brand-2: #e7f5ef; --mint: #3fd3a1; --mint-2: #b9f0dc;
+    --paper: #ffffff; --soft: #f3f8f6; --ink: #13261f; --muted: #667a73; --line: #e2ebe7;
+    --danger: #c0392b; --danger-bg: #fdecea; --warn: #8a5a00; --warn-bg: #fff5dc; --line-green: #06c755;
+    --t-member: linear-gradient(135deg, #3d5a52, #1f3a33); --t-silver: linear-gradient(135deg, #8e9bb0, #4f5c70);
+    --t-gold: linear-gradient(135deg, #e0b14a, #9a6a12); --t-platinum: linear-gradient(135deg, #6a5bc4, #2b2163);
+    --f-display: "Anuphan", "Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif;
+    --f-body: "Noto Sans Thai", "Leelawadee UI", "Sarabun", Tahoma, sans-serif;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--deep); }
+  body { margin: 0; min-height: 100vh; color: var(--ink); font: 16px/1.6 var(--f-body); overflow-x: hidden;
+    padding: max(14px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom));
+    background: radial-gradient(120% 80% at 10% 0%, #138a6b 0%, transparent 60%), radial-gradient(90% 70% at 100% 100%, #0d5f4a 0%, transparent 60%), var(--deep); }
+  /* แสงพื้นหลังลอยช้า ๆ */
+  .glow { position: fixed; inset: -20%; z-index: -1; pointer-events: none; filter: blur(60px); opacity: .55; }
+  .glow i { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; }
+  .glow i:nth-child(1) { background: #1fae84; left: -10vmax; top: -12vmax; animation: drift 22s ease-in-out infinite alternate; }
+  .glow i:nth-child(2) { background: #0a7f63; right: -14vmax; bottom: -16vmax; animation: drift 28s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { to { transform: translate(8vmax, 6vmax) scale(1.15); } }
+
+  .box { position: relative; background: var(--paper); border-radius: 26px; width: min(560px, 100%); margin: 0 auto;
+    padding: 22px 20px 24px; box-shadow: 0 30px 60px -20px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04); animation: rise .6s var(--ease) both; }
+  .brandbar { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .logo { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--mint), var(--brand)); display: grid; place-items: center;
+    color: #fff; font: 700 18px var(--f-display); box-shadow: 0 6px 14px -6px var(--brand); }
+  h1 { font: 700 21px/1.2 var(--f-display); margin: 0; color: var(--brand); }
+  h2 { font: 700 21px/1.3 var(--f-display); margin: 0; }
+  h3 { font: 600 15px var(--f-display); margin: 0 0 6px; }
   .muted { color: var(--muted); font-size: 14px; }
-  .small { font-size: 14px; }
   .center { text-align: center; }
   .num { font-variant-numeric: tabular-nums; }
-  .tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 14px 0 18px; background: #eef4f2; padding: 4px; border-radius: 12px; }
   [hidden] { display: none !important; }
-  .tabs button { font: inherit; font-size: 15px; border: 0; background: none; padding: 10px 4px; border-radius: 9px; cursor: pointer; color: var(--muted); }
-  .tabs button.on { background: #fff; color: var(--brand); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-  .sub-h { margin: 6px 0 16px; }
-  input { width: 100%; font: inherit; font-size: 24px; letter-spacing: 1px; text-align: center; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; }
-  input:focus { outline: none; border-color: var(--brand); }
-  label.lb { display: block; font-size: 14px; color: var(--muted); margin-top: 8px; }
+  .sub-h { margin: 4px 0 14px; }
+
+  /* เข้าฉากแบบไล่ลำดับ: ใส่ style="--d:2" เพื่อหน่วง */
+  .rise { animation: rise .55s var(--ease) both; animation-delay: calc(var(--d, 0) * 70ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  .fade { animation: fade .35s ease both; }
+  @keyframes fade { from { opacity: 0; } }
+
+  .tabs { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); margin: 16px 0 18px; background: var(--soft); padding: 4px; border-radius: 14px; }
+  .tabs::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 11px; background: var(--paper);
+    box-shadow: 0 2px 8px rgba(0,0,0,.08); transition: transform .35s var(--ease); }
+  .tabs[data-on="member"]::before { transform: translateX(100%); }
+  .tabs button { position: relative; font: 600 15px var(--f-body); border: 0; background: none; padding: 10px 4px; cursor: pointer; color: var(--muted); transition: color .25s; }
+  .tabs button.on { color: var(--brand); }
+
+  input, textarea { width: 100%; font: inherit; border: 2px solid var(--line); border-radius: 14px; margin: 6px 0; background: var(--soft);
+    transition: border-color .2s, background .2s, box-shadow .2s; color: var(--ink); }
+  input { font-size: 24px; letter-spacing: 2px; text-align: center; padding: 11px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--brand); background: var(--paper); box-shadow: 0 0 0 4px var(--brand-2); }
+  label.lb { display: block; font-size: 14px; color: var(--muted); margin-top: 10px; }
   .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
-  .pad button { font: inherit; font-size: 24px; padding: 11px; border: 0; border-radius: 12px; background: #eef4f2; cursor: pointer; }
-  .pad button:active { background: #d6e9e2; }
-  .go { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 19px; border: 0; border-radius: 12px; background: var(--brand); color: #fff; cursor: pointer; }
-  .go:disabled { opacity: .6; }
-  .go.light { background: #eef4f2; color: var(--ink); }
-  .link { font: inherit; font-size: 14px; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 6px 0; text-decoration: underline; }
-  .pts { font-size: 64px; font-weight: 800; color: var(--brand); line-height: 1; margin: 10px 0 4px; }
-  .badge { display: inline-block; padding: 2px 14px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 15px; }
-  .t-member { background: var(--member); } .t-silver { background: var(--silver); } .t-gold { background: var(--gold); } .t-platinum { background: var(--platinum); }
-  .rw { display: flex; justify-content: space-between; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); font-size: 15px; }
-  .rw.ok b { color: var(--brand); }
-  .err { color: var(--danger); margin-top: 10px; min-height: 1.5em; text-align: center; }
-  .okmsg { color: var(--brand); margin-top: 10px; text-align: center; }
-  .row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .chip { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; white-space: nowrap; }
+  .pad button { font: 600 24px var(--f-display); padding: 12px; border: 0; border-radius: 14px; background: var(--soft); cursor: pointer; transition: transform .12s, background .12s; color: var(--ink); }
+  .pad button:active { transform: scale(.94); background: var(--mint-2); }
+
+  .go { position: relative; overflow: hidden; width: 100%; margin-top: 14px; padding: 14px; font: 600 18px var(--f-display); border: 0; border-radius: 14px;
+    background: linear-gradient(135deg, #12896a, var(--brand)); color: #fff; cursor: pointer; box-shadow: 0 10px 20px -10px var(--brand); transition: transform .15s, box-shadow .2s, opacity .2s; }
+  .go:active { transform: scale(.98); }
+  .go:disabled { opacity: .65; }
+  .go.loading::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+    animation: sweep 1s linear infinite; }
+  .go.line { background: var(--line-green); box-shadow: 0 10px 20px -10px var(--line-green); display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .go.light { background: var(--soft); color: var(--ink); box-shadow: none; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .link { font: inherit; font-size: 14px; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 6px 0; text-decoration: underline; text-underline-offset: 3px; }
+  .chip { font: 500 14px var(--f-body); padding: 7px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; white-space: nowrap;
+    color: var(--ink); transition: background .25s, color .25s, border-color .25s, transform .12s; }
+  .chip:active { transform: scale(.96); }
   .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
-  .chips { display: flex; gap: 6px; margin: 18px 0 4px; overflow-x: auto; padding-bottom: 4px; }
-  .card { margin-top: 12px; padding: 14px 16px; border-radius: 14px; background: var(--brand-2); }
-  .ptcard { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .ptnum { font-size: 42px; font-weight: 800; color: var(--brand); line-height: 1; }
-  .bar { height: 8px; border-radius: 99px; background: #fff; overflow: hidden; margin: 8px 0 4px; }
-  .bar > div { height: 100%; background: var(--brand); }
-  .bday { margin-top: 12px; padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); }
-  .health { margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); }
+  .chips { display: flex; gap: 6px; margin: 20px 0 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .err { color: var(--danger); margin-top: 10px; min-height: 1.5em; text-align: center; }
+  .err:not(:empty) { animation: shake .4s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  .okmsg { color: var(--brand); margin-top: 10px; text-align: center; font-weight: 600; animation: pop .45s var(--ease) both; }
+  @keyframes pop { from { opacity: 0; transform: scale(.8); } }
+  .row-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .hello { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px var(--brand-2); background: var(--brand-2); }
+
+  /* การ์ดสมาชิก */
+  .mcard { position: relative; overflow: hidden; margin-top: 16px; padding: 18px 20px; border-radius: 22px; color: #fff; background: var(--t-member);
+    box-shadow: 0 18px 30px -16px rgba(0,0,0,.5); isolation: isolate; }
+  .mcard.t-silver { background: var(--t-silver); } .mcard.t-gold { background: var(--t-gold); } .mcard.t-platinum { background: var(--t-platinum); }
+  .mcard::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(70% 90% at 100% 0%, rgba(255,255,255,.22), transparent 60%); }
+  .mcard::after { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; z-index: -1; left: -60%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); transform: skewX(-18deg); animation: shine 5.5s ease-in-out 1s infinite; }
+  @keyframes shine { 0%, 70% { left: -60%; } 100% { left: 130%; } }
+  .mcard .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .tier { font: 700 13px var(--f-display); letter-spacing: .12em; text-transform: uppercase; opacity: .95; }
+  .tier-th { font: 700 22px var(--f-display); line-height: 1.2; }
+  .benefit { font-size: 13px; opacity: .85; margin-top: 2px; }
+  .ptnum { font: 700 46px/1 var(--f-display); text-align: right; letter-spacing: -.5px; }
+  .ptlabel { font-size: 13px; opacity: .85; text-align: right; }
+  .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.22); overflow: hidden; margin: 16px 0 6px; }
+  .bar > div { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--mint-2), #fff); transition: width 1.2s var(--ease) .3s; }
+  .mcard .foot { font-size: 13px; opacity: .9; }
+
+  .bday { margin-top: 12px; padding: 10px 14px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); display: flex; gap: 10px; align-items: center; }
+  .bday .cake { font-size: 22px; animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-4px) rotate(-6deg); } }
+  .health { margin-top: 12px; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: var(--paper); }
   .allergy { color: var(--danger); font-weight: 600; }
   .disease { color: var(--warn); }
-  .item { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 11px 4px; cursor: pointer; }
-  .item:hover { background: var(--brand-2); }
+  .pend { font-size: 13px; color: var(--warn); }
+  .lineok { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .lineok b { color: var(--line-green); }
+  .linebar { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #e9faf0; color: #0b5a2c; margin: 4px 0 6px; animation: rise .5s var(--ease) both; }
+  .linebar .avatar { width: 40px; height: 40px; box-shadow: 0 0 0 3px #c9f2d9; }
+
+  .switch { display: flex; align-items: center; gap: 12px; margin: 14px auto 0; padding: 12px 14px; border-radius: 16px; background: #e9faf0; cursor: pointer; max-width: 380px; }
+  .switch input { position: absolute; opacity: 0; pointer-events: none; }
+  .switch .knob { flex: none; position: relative; width: 46px; height: 28px; border-radius: 99px; background: #c8d4cf; transition: background .25s; }
+  .switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,.2); transition: transform .3s var(--ease); }
+  .switch input:checked + .knob { background: var(--line-green); }
+  .switch input:checked + .knob::after { transform: translateX(18px); }
+  .switch input:focus-visible + .knob { outline: 3px solid var(--mint); outline-offset: 2px; }
+  .item { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 12px 6px; cursor: pointer;
+    border-radius: 10px; transition: background .2s, transform .12s; color: var(--ink); }
+  .item:hover { background: var(--soft); }
+  .item:active { transform: scale(.99); }
   .item[disabled] { cursor: default; }
   .item[disabled]:hover { background: none; }
   .nm { font-weight: 600; }
@@ -64,38 +141,50 @@
   .tag { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); margin-left: 6px; }
   .plus { color: var(--brand); font-weight: 700; }
   .minus { color: var(--danger); font-weight: 700; }
-  .bill-lines { padding: 4px 4px 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .bill-lines { padding: 4px 6px 10px 14px; border-bottom: 1px solid var(--line); font-size: 14px; animation: rise .35s var(--ease) both; }
   .bill-lines div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
   .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
-  .stat { background: #f5f8f7; border-radius: 10px; padding: 8px 12px; }
-  .stat b { display: block; font-size: 20px; }
+  .stat { background: var(--soft); border-radius: 14px; padding: 10px 14px; }
+  .stat b { display: block; font: 700 22px var(--f-display); }
+  .rw { display: flex; justify-content: space-between; gap: 10px; padding: 11px 4px; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .rw.ok b { color: var(--brand); }
+  .card { margin-top: 12px; padding: 14px 16px; border-radius: 16px; background: var(--brand-2); }
   .sec { margin-top: 14px; }
   .sec h3 { color: var(--brand); }
-  .sec .txt { white-space: pre-line; background: #f7faf9; border-radius: 10px; padding: 10px 12px; }
+  .sec .txt { white-space: pre-line; background: var(--soft); border-radius: 12px; padding: 10px 12px; }
   .sec.warn h3 { color: var(--danger); }
   .sec.warn .txt { background: var(--danger-bg); }
-  .note { margin-top: 16px; font-size: 13px; color: var(--warn); background: var(--warn-bg); padding: 8px 12px; border-radius: 10px; }
-  .back { font: inherit; border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; margin-bottom: 8px; }
-  .ef input, .ef textarea { font-size: 17px; letter-spacing: 0; text-align: left; }
-  .ef textarea { width: 100%; font: inherit; font-size: 17px; padding: 10px; border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; resize: vertical; }
-  .ef textarea:focus { outline: none; border-color: var(--brand); }
-  .pend { font-size: 13px; color: var(--warn); }
-  .empty { padding: 20px; text-align: center; color: var(--muted); font-size: 15px; }
-  @media (max-width: 480px) { body { padding: 10px; } .box { padding: 18px 14px 22px; border-radius: 16px; } .pts { font-size: 54px; } }
+  .note { margin-top: 16px; font-size: 13px; color: var(--warn); background: var(--warn-bg); padding: 9px 12px; border-radius: 12px; }
+  .back { font: 600 15px var(--f-body); border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; margin-bottom: 10px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); font-size: 15px; }
+  .ef input, .ef textarea { font-size: 16px; letter-spacing: 0; text-align: left; padding: 10px 12px; }
+  .ef textarea { resize: vertical; }
+  .skel { height: 14px; border-radius: 8px; margin: 10px 0; background: linear-gradient(90deg, var(--soft), #e6efeb, var(--soft)); background-size: 200% 100%; animation: skel 1.2s linear infinite; }
+  @keyframes skel { to { background-position: -200% 0; } }
+  .spinner { width: 40px; height: 40px; margin: 30px auto 12px; border-radius: 50%; border: 4px solid var(--brand-2); border-top-color: var(--brand); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pts { font: 700 64px/1 var(--f-display); color: var(--brand); margin: 12px 0 4px; }
+  .badge { display: inline-block; padding: 3px 14px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 14px; background: var(--t-member); }
+  .badge.t-silver { background: var(--t-silver); } .badge.t-gold { background: var(--t-gold); } .badge.t-platinum { background: var(--t-platinum); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--mint); outline-offset: 2px; }
+  @media (max-width: 420px) { body { padding-inline: 10px; } .box { padding: 18px 14px 22px; border-radius: 22px; } .pts { font-size: 54px; } .ptnum { font-size: 40px; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .bar > div { transition: none; } }
 </style>
 </head>
 <body>
+<div class="glow" aria-hidden="true"><i></i><i></i></div>
 <div class="box">
-  <h1 id="shop">ร้านยามุมยาเภสัช</h1>
-  <div class="tabs" id="tabs" hidden>
+  <div class="brandbar"><div class="logo">ย</div><h1 id="shop">ร้านยามุมยาเภสัช</h1></div>
+  <div class="tabs" id="tabs" hidden data-on="points">
     <button data-tab="points">เช็คแต้ม</button>
     <button data-tab="member">สมาชิก</button>
   </div>
   <div class="muted center sub-h" id="subtitle" hidden>พื้นที่สมาชิก</div>
-  <div id="view"></div>
+  <div id="view"><div class="spinner"></div></div>
 </div>
 <script>
 const TIER = { member: 'สมาชิก', silver: 'ซิลเวอร์', gold: 'โกลด์', platinum: 'แพลทินัม' };
+const TIER_EN = { member: 'Member', silver: 'Silver', gold: 'Gold', platinum: 'Platinum' };
 const view = document.getElementById('view');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const n = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
@@ -104,9 +193,12 @@ const toDate = s => s ? new Date(s.replace(' ', 'T')) : null;
 const dateTh = s => { const d = toDate(s); return d && d.getFullYear() > 1900 ? d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-'; };
 // ข้อความในฉลากยาบางตัวมีเครื่องหมาย markdown (** #) — ตัดออกให้อ่านง่าย
 const clean = s => String(s ?? '').replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // PUBLIC = เปิดผ่านเว็บไซต์ (มือถือลูกค้า) / ไม่ใช่ = แท็บเล็ตหน้าร้าน
-let PUBLIC = false, current = '', token = null, me = null, meTab = 'drugs';
+let PUBLIC = false, current = '', token = null, me = null, meTab = 'drugs', SETTINGS = {};
+// LINE (เฉพาะหน้าออนไลน์ที่ตั้งค่า LIFF ไว้): idToken ใช้ยืนยันตัวตนกับเซิร์ฟเวอร์ / profile ใช้แสดงรูปและชื่อ
+const LINE = { ready: false, idToken: null, profile: null, auto: true };
 
 async function api(path, body) {
   const headers = {};
@@ -120,6 +212,15 @@ async function api(path, body) {
   return d;
 }
 
+// ตัวเลขวิ่งขึ้นจาก 0
+function countUp(el, to) {
+  if (!el) return;
+  if (calm || !to) { el.textContent = n(to); return; }
+  const t0 = performance.now(), dur = 1100;
+  const step = t => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); el.textContent = n(Math.round(to * e * 100) / 100); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
 // ข้อมูลส่วนตัวบนจอ ล้างเองเมื่อไม่มีการใช้งาน (หน้าร้าน 90 วินาที / มือถือ 15 นาที เท่ากับฝั่งเซิร์ฟเวอร์)
 let idleTimer = null, idleFn = null;
 const idleMs = () => PUBLIC ? 15 * 60000 : 90000;
@@ -130,6 +231,7 @@ function publicScreen() { clearTimeout(idleTimer); idleTimer = idleFn = null; }
 function show(tab) {
   current = tab;
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.getElementById('tabs').dataset.on = tab;
   publicScreen();
   if (tab === 'points') pointsForm(); else if (me) renderMe(); else memberLogin();
 }
@@ -153,9 +255,9 @@ function keypad(fields) {
 
 // ---------- เช็คแต้มด้วยเบอร์ (เฉพาะแท็บเล็ตหน้าร้าน) ----------
 function pointsForm(msg = '') {
-  view.innerHTML = `<div class="muted center">ใส่เบอร์โทรศัพท์เพื่อดูแต้มสะสม</div>
-    <input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
-    ${padHtml()}<button class="go" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
+  view.innerHTML = `<div class="muted center rise">ใส่เบอร์โทรศัพท์เพื่อดูแต้มสะสม</div>
+    <input id="ph" class="rise" style="--d:1" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+    <div class="rise" style="--d:2">${padHtml()}</div><button class="go rise" style="--d:3" id="go">ดูแต้ม</button><div class="err">${esc(msg)}</div>`;
   const ph = view.querySelector('#ph');
   keypad([ph]); ph.focus();
   const go = () => checkPoints(ph.value);
@@ -165,77 +267,124 @@ function pointsForm(msg = '') {
 
 async function checkPoints(phone) {
   let d;
+  view.querySelector('#go')?.classList.add('loading');
   try { d = await api('check?phone=' + encodeURIComponent(phone)); } catch (e) { return pointsForm(e.message); }
-  view.innerHTML = `<div class="center"><div class="muted">สวัสดีคุณ</div><h2>${esc(d.name)}</h2>
-    <div style="margin-top:6px"><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
-    <div class="pts">${n(d.points)}</div><div class="muted">แต้มสะสม</div>
-    ${d.nextTier ? `<p class="muted">ซื้อเพิ่มอีก ${baht(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}</div>
+  view.innerHTML = `<div class="center"><div class="muted rise">สวัสดีคุณ</div><h2 class="rise" style="--d:1">${esc(d.name)}</h2>
+    <div class="rise" style="--d:2;margin-top:8px"><span class="badge t-${d.tier}">${TIER[d.tier]}</span></div>
+    <div class="pts num rise" style="--d:3" id="pts">0</div><div class="muted">แต้มสะสม</div>
+    ${d.nextTier ? `<p class="muted rise" style="--d:4">ซื้อเพิ่มอีก ${baht(d.toNextTier)} ภายใน 12 เดือน เพื่อเป็นระดับ ${TIER[d.nextTier]}</p>` : ''}</div>
     <p class="muted center">ดูประวัติยาและแต้มแบบละเอียด ที่แท็บ "สมาชิก"</p><button class="go" id="done">เสร็จสิ้น</button>`;
+  countUp(view.querySelector('#pts'), d.points);
   view.querySelector('#done').onclick = () => pointsForm();
   privateScreen(() => pointsForm());
 }
 
 // ---------- เข้าสู่ระบบสมาชิก ----------
+function lineBanner() {
+  if (!LINE.idToken) return '';
+  const p = LINE.profile;
+  return `<div class="linebar">${p && p.pictureUrl ? `<img class="avatar" src="${esc(p.pictureUrl)}" alt="">` : ''}
+    <div><b>เชื่อมบัญชี LINE${p ? ' · ' + esc(p.displayName) : ''}</b><div style="font-size:13px">ใส่เบอร์และ PIN ครั้งแรกครั้งเดียว ครั้งต่อไปเปิดจาก LINE เข้าได้ทันที</div></div></div>`;
+}
+
 function memberLogin(msg = '') {
   me = null;
-  view.innerHTML = `<div class="muted center">เข้าสู่ระบบด้วยเบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่ร้าน)</div>
-    <label class="lb">เบอร์โทรศัพท์</label><input id="ph" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
-    <label class="lb">PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
-    ${padHtml()}<button class="go" id="go">เข้าสู่ระบบ</button><div class="err">${esc(msg)}</div>`;
+  const lineBtn = LINE.ready && !LINE.idToken ? `<button class="go line rise" style="--d:4" id="lineGo" type="button">${LINE_ICON} เข้าด้วย LINE</button>`
+    : LINE.idToken && !LINE.auto ? `<button class="go line rise" style="--d:4" id="lineGo" type="button">${LINE_ICON} เข้าอัตโนมัติด้วย LINE</button>` : '';
+  view.innerHTML = `${lineBanner()}<div class="muted center rise">เข้าสู่ระบบด้วยเบอร์โทร + PIN<br>(ยังไม่มี PIN? ขอให้พนักงานตั้งให้ที่ร้าน)</div>
+    <label class="lb rise" style="--d:1">เบอร์โทรศัพท์</label><input id="ph" class="rise" style="--d:1" type="tel" inputmode="numeric" maxlength="10" placeholder="0XXXXXXXXX" autocomplete="off">
+    <label class="lb rise" style="--d:2">PIN</label><input id="pin" class="rise" style="--d:2" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
+    <div class="rise" style="--d:3">${padHtml()}</div><button class="go rise" style="--d:3" id="go">เข้าสู่ระบบ</button>${lineBtn}<div class="err">${esc(msg)}</div>`;
   const ph = view.querySelector('#ph'), pin = view.querySelector('#pin'), btn = view.querySelector('#go');
   keypad([ph, pin]); if (!PUBLIC) ph.focus();
   const go = async () => {
-    btn.disabled = true;
+    btn.disabled = true; btn.classList.add('loading');
     try {
-      const d = await api('my/login', { phone: ph.value, pin: pin.value });
-      token = d.token; me = d; meTab = 'drugs';
-      renderMe();
+      const body = { phone: ph.value, pin: pin.value };
+      if (LINE.idToken) body.lineIdToken = LINE.idToken;
+      const d = await api('my/login', body);
+      token = d.token; me = d; meTab = 'drugs'; LINE.auto = true;
+      renderMe(true);
     } catch (e) { memberLogin(e.message); }
   };
   pin.onkeydown = ph.onkeydown = e => { if (e.key === 'Enter') go(); };
   btn.onclick = go;
+  const lb = view.querySelector('#lineGo');
+  if (lb) lb.onclick = () => { if (LINE.idToken) { LINE.auto = true; lineSignIn(); } else liff.login({ redirectUri: location.href }); };
 }
 
 async function logout() {
   try { if (token) await api('my/logout', {}); } catch {}
   token = me = null;
+  LINE.auto = false; // ไม่เข้าอัตโนมัติซ้ำทันทีหลังกดออก
   publicScreen();
   if (current === 'member') memberLogin();
 }
 
 // ---------- หน้าสมาชิก ----------
-function renderMe() {
+function renderMe(first = false) {
   privateScreen(logout);
   const m = me;
   const pct = m.NextTier ? Math.max(0, Math.min(100, (m.Spend365 - m.TierMin) / (m.NextTierMin - m.TierMin) * 100)) : 100;
-  const tabs = [['drugs', 'ยาของฉัน'], ['bills', 'ประวัติการซื้อ'], ['points', 'แต้ม'], ['rewards', m.PointSource === 'cw' ? 'ใช้แต้ม' : 'ของรางวัล']];
+  const pic = LINE.profile && LINE.profile.pictureUrl && m.LineLinked ? `<img class="avatar" src="${esc(LINE.profile.pictureUrl)}" alt="">` : '';
   view.innerHTML = `
-    <div class="row-top"><div><div class="muted">สวัสดี</div><h2>คุณ${esc(m.name)}</h2></div>
+    <div class="row-top rise"><div class="hello">${pic}<div style="min-width:0"><div class="muted">สวัสดี</div><h2>คุณ${esc(m.name)}</h2></div></div>
       <button class="chip" id="out">ออกจากระบบ</button></div>
-    ${m.BirthdayMonth ? '<div class="bday">🎂 สุขสันต์เดือนเกิด! แสดงหน้านี้ที่ร้านเพื่อรับสิทธิพิเศษวันเกิด</div>' : ''}
-    <div class="card"><div class="ptcard">
-      <div><span class="badge t-${m.Tier}">${TIER[m.Tier]}</span>${m.Benefit ? `<div class="sub" style="margin-top:6px">${esc(m.Benefit)}</div>` : ''}</div>
-      <div class="center"><div class="ptnum num">${n(m.Points)}</div><div class="sub">แต้มสะสม</div></div></div>
-      ${m.NextTier ? `<div class="bar"><div style="width:${pct}%"></div></div>
-        <div class="sub">ซื้ออีก ${baht(m.ToNextTier)} ภายใน 12 เดือน เป็นระดับ ${TIER[m.NextTier]}</div>`
-        : '<div class="sub" style="margin-top:8px">คุณอยู่ระดับสูงสุดแล้ว ขอบคุณที่ไว้วางใจ</div>'}
+    ${m.BirthdayMonth ? '<div class="bday rise" style="--d:1"><span class="cake">🎂</span><span>สุขสันต์เดือนเกิด! แสดงหน้านี้ที่ร้านเพื่อรับสิทธิพิเศษวันเกิด</span></div>' : ''}
+    <div class="mcard t-${m.Tier} rise" style="--d:1">
+      <div class="top"><div><div class="tier">Mumya Card · ${TIER_EN[m.Tier] || ''}</div><div class="tier-th">${TIER[m.Tier]}</div>
+        ${m.Benefit ? `<div class="benefit">${esc(m.Benefit)}</div>` : ''}</div>
+        <div><div class="ptnum num" id="pts">${first ? '0' : n(m.Points)}</div><div class="ptlabel">แต้มสะสม</div></div></div>
+      ${m.NextTier ? `<div class="bar"><div id="bar" style="${first ? '' : 'width:' + pct + '%'}"></div></div>
+        <div class="foot">ซื้ออีก ${baht(m.ToNextTier)} ภายใน 12 เดือน เป็นระดับ ${TIER[m.NextTier]}</div>`
+        : '<div class="foot" style="margin-top:12px">คุณอยู่ระดับสูงสุดแล้ว ขอบคุณที่ไว้วางใจ</div>'}
     </div>
-    <div class="health"><h3>ข้อมูลสุขภาพที่ร้านบันทึกไว้</h3>
+    <div class="health rise" style="--d:2"><h3>ข้อมูลสุขภาพที่ร้านบันทึกไว้</h3>
       ${m.Allergy ? `<div class="allergy">⚠ แพ้ยา: ${esc(m.Allergy)}</div>` : '<div class="sub">ไม่มีข้อมูลการแพ้ยา</div>'}
       ${m.Disease ? `<div class="disease">โรคประจำตัว: ${esc(m.Disease)}</div>` : ''}
       ${(m.PendingEdits || []).length ? `<div class="pend" style="margin-top:6px">⏳ ส่งคำขอแก้ไข ${m.PendingEdits.length} รายการ รอเภสัชกรตรวจสอบ</div>` : ''}
       <div class="sub" style="margin-top:4px">ข้อมูลไม่ถูกต้อง หรือแพ้ยาแต่ยังไม่มีในระบบ? <button class="link" id="edit">แก้ไขข้อมูลของฉัน</button></div></div>
-    <div class="chips">${tabs.map(([k, t]) => `<button class="chip ${meTab === k ? 'on' : ''}" data-me="${k}">${t}</button>`).join('')}</div>
-    <div id="meBody">${({ drugs: myDrugs, bills: myBills, points: myPoints, rewards: myRewards })[meTab]()}</div>
-    <div style="text-align:center;margin-top:16px"><button class="link" id="chpin">เปลี่ยน PIN</button></div>
+    <div class="chips rise" style="--d:3" id="meTabs"></div>
+    <div id="meBody"></div>
+    <div class="center" style="margin-top:16px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;align-items:center">
+      <button class="link" id="chpin">เปลี่ยน PIN</button>
+      ${m.LineLinked ? `<span class="lineok">${LINE_ICON_SM} <b>เชื่อม LINE แล้ว</b> <button class="link" id="unline">ยกเลิก</button></span>`
+        : LINE.idToken ? '<button class="link" id="doline">เชื่อมบัญชี LINE</button>' : ''}
+    </div>
+    ${m.LineLinked && SETTINGS.LineOA ? `<label class="switch rise" style="--d:5"><input type="checkbox" id="notif" ${m.LineNotify ? 'checked' : ''}><span class="knob"></span>
+      <span>รับแจ้งเตือนทาง LINE<br><span class="sub">แต้มหลังซื้อของ · ผลคำขอแก้ไข · สิทธิ์เดือนเกิด</span></span></label>` : ''}
     ${m.SyncedAt ? `<div class="sub center" style="margin-top:12px">ข้อมูล ณ ${esc(new Date(m.SyncedAt.replace(' ', 'T')).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }))} น. (อัปเดตเมื่อร้านเปิด)</div>` : ''}
     <div class="note">ข้อมูลเป็นความลับส่วนตัว — กด "ออกจากระบบ" เมื่อใช้เสร็จ (ออกเองเมื่อไม่ได้ใช้งาน ${PUBLIC ? '15 นาที' : '90 วินาที'})</div>`;
   view.querySelector('#out').onclick = logout;
-  view.querySelector('#chpin').onclick = changePinForm;
+  view.querySelector('#chpin').onclick = () => changePinForm();
   view.querySelector('#edit').onclick = () => editForm();
-  view.querySelectorAll('[data-me]').forEach(b => b.onclick = () => { meTab = b.dataset.me; renderMe(); });
-  view.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug));
-  view.querySelectorAll('[data-bill]').forEach(b => b.onclick = () => toggleBill(b));
+  const ul = view.querySelector('#unline');
+  if (ul) ul.onclick = async () => { try { me = { ...me, ...(await api('my/line/unlink', {})) }; renderMe(); } catch (e) { alert(e.message); } };
+  const nt = view.querySelector('#notif');
+  if (nt) nt.onchange = async () => {
+    nt.disabled = true;
+    try { me = { ...me, ...(await api('my/line/notify', { on: nt.checked })) }; } catch (e) { nt.checked = !nt.checked; alert(e.message); }
+    nt.disabled = false;
+  };
+  const dl = view.querySelector('#doline');
+  if (dl) dl.onclick = () => linkLineForm();
+  setMeTab(meTab, false);
+  if (first) {
+    countUp(view.querySelector('#pts'), m.Points);
+    requestAnimationFrame(() => requestAnimationFrame(() => { const b = view.querySelector('#bar'); if (b) b.style.width = pct + '%'; }));
+  }
+}
+
+// เปลี่ยนแท็บโดยไม่วาดการ์ดใหม่ (ภาพเคลื่อนไหวการ์ดไม่เล่นซ้ำ)
+function setMeTab(k, animate = true) {
+  meTab = k;
+  const tabs = [['drugs', 'ยาของฉัน'], ['bills', 'ประวัติการซื้อ'], ['points', 'แต้ม'], ['rewards', me.PointSource === 'cw' ? 'ใช้แต้ม' : 'ของรางวัล']];
+  const bar = view.querySelector('#meTabs'), body = view.querySelector('#meBody');
+  bar.innerHTML = tabs.map(([key, t]) => `<button class="chip ${meTab === key ? 'on' : ''}" data-me="${key}">${t}</button>`).join('');
+  body.innerHTML = `<div class="${animate ? 'fade' : 'rise'}" style="--d:4">${({ drugs: myDrugs, bills: myBills, points: myPoints, rewards: myRewards })[meTab]()}</div>`;
+  bar.querySelectorAll('[data-me]').forEach(b => b.onclick = () => setMeTab(b.dataset.me));
+  body.querySelectorAll('[data-drug]').forEach(b => b.onclick = () => drugDetail(+b.dataset.drug));
+  body.querySelectorAll('[data-bill]').forEach(b => b.onclick = () => toggleBill(b));
 }
 
 function myDrugs() {
@@ -289,6 +438,7 @@ function myRewards() {
   if (me.PointSource === 'cw')
     return `<div class="card"><h3>ใช้แต้มแทนเงินสด</h3>
       <div>คุณมี <b class="num">${n(me.Points)}</b> แต้ม</div>
+      <div class="sub" style="margin-top:6px">${esc(me.PointInfo || '')}</div>
       <div class="sub" style="margin-top:6px">ใช้แต้มเป็นส่วนลดได้ตอนชำระเงินที่ร้าน — แจ้งพนักงานว่าต้องการใช้แต้มก่อนชำระเงิน</div></div>`;
   if (!me.Rewards.length) return '<div class="empty">ยังไม่มีของรางวัล</div>';
   return me.Rewards.map(r => `<div class="rw ${me.Points >= r.Points ? 'ok' : ''}"><span>${esc(r.Name)}
@@ -300,29 +450,31 @@ function myRewards() {
 
 async function drugDetail(id) {
   let d;
-  try { d = await api('my/drug/' + id); } catch (e) { if (token) alert(e.message); return; }
-  const sec = (title, text, cls = '') => text ? `<div class="sec ${cls}"><h3>${title}</h3><div class="txt">${esc(clean(text))}</div></div>` : '';
+  view.innerHTML = '<div class="skel" style="width:40%"></div><div class="skel" style="width:70%;height:24px"></div><div class="skel"></div><div class="skel"></div><div class="skel" style="width:80%"></div>';
+  try { d = await api('my/drug/' + id); } catch (e) { if (token) { alert(e.message); renderMe(); } return; }
+  const sec = (title, text, cls = '', i = 0) => text ? `<div class="sec ${cls} rise" style="--d:${i}"><h3>${title}</h3><div class="txt">${esc(clean(text))}</div></div>` : '';
   view.innerHTML = `<button class="back" id="bk">← กลับ</button>
-    <h2>${esc(d.Name)}</h2>${d.Generic ? `<div class="muted">ตัวยา: ${esc(d.Generic)}</div>` : ''}
-    ${sec('สรรพคุณ', d.Property)}${sec('วิธีใช้', d.Using)}${sec('ข้อควรระวัง / คำเตือน', d.Warning, 'warn')}
+    <h2 class="rise">${esc(d.Name)}</h2>${d.Generic ? `<div class="muted rise">ตัวยา: ${esc(d.Generic)}</div>` : ''}
+    ${sec('สรรพคุณ', d.Property, '', 1)}${sec('วิธีใช้', d.Using, '', 2)}${sec('ข้อควรระวัง / คำเตือน', d.Warning, 'warn', 3)}
     ${!d.Property && !d.Using && !d.Warning ? '<p class="muted">ยังไม่มีข้อมูลวิธีใช้ของยานี้ — สอบถามเภสัชกรได้ที่ร้าน</p>' : ''}
     <div class="note">ให้ใช้ยาตามที่เภสัชกรหรือแพทย์แนะนำและตามฉลากที่ได้รับ หากมีโรคประจำตัว ตั้งครรภ์ หรือแพ้ยา ปรึกษาเภสัชกรก่อนใช้</div>`;
-  view.querySelector('#bk').onclick = renderMe;
-  window.scrollTo(0, 0);
+  view.querySelector('#bk').onclick = () => renderMe();
+  window.scrollTo({ top: 0, behavior: calm ? 'auto' : 'smooth' });
 }
 
 function changePinForm(msg = '', ok = false) {
-  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2>เปลี่ยน PIN</h2>
-    <label class="lb">PIN ปัจจุบัน</label><input id="cur" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-    <label class="lb">PIN ใหม่ (ตัวเลข 4-6 หลัก)</label><input id="np" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-    <label class="lb">ยืนยัน PIN ใหม่</label><input id="np2" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-    ${padHtml()}<button class="go" id="go">บันทึก PIN ใหม่</button><div class="${ok ? 'okmsg' : 'err'}">${esc(msg)}</div>`;
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2 class="rise">เปลี่ยน PIN</h2>
+    <label class="lb rise" style="--d:1">PIN ปัจจุบัน</label><input id="cur" class="rise" style="--d:1" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <label class="lb rise" style="--d:2">PIN ใหม่ (ตัวเลข 4-6 หลัก)</label><input id="np" class="rise" style="--d:2" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <label class="lb rise" style="--d:3">ยืนยัน PIN ใหม่</label><input id="np2" class="rise" style="--d:3" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    ${padHtml()}<button class="go rise" style="--d:4" id="go">บันทึก PIN ใหม่</button><div class="${ok ? 'okmsg' : 'err'}">${esc(msg)}</div>`;
   const cur = view.querySelector('#cur'), np = view.querySelector('#np'), np2 = view.querySelector('#np2');
   keypad([cur, np, np2]);
-  view.querySelector('#bk').onclick = renderMe;
+  view.querySelector('#bk').onclick = () => renderMe();
   view.querySelector('#go').onclick = async () => {
     if (np.value !== np2.value) return changePinForm('PIN ใหม่ทั้งสองช่องไม่ตรงกัน');
-    try { await api('my/pin', { current: cur.value, pin: np.value }); changePinForm('เปลี่ยน PIN เรียบร้อย ครั้งหน้าใช้ PIN ใหม่', true); }
+    view.querySelector('#go').classList.add('loading');
+    try { await api('my/pin', { current: cur.value, pin: np.value }); changePinForm('✓ เปลี่ยน PIN เรียบร้อย ครั้งหน้าใช้ PIN ใหม่', true); }
     catch (e) { if (token) changePinForm(e.message); }
   };
 }
@@ -337,40 +489,93 @@ function editForm(msg = '', ok = false) {
   const pend = Object.fromEntries((me.PendingEdits || []).map(p => [p.Field, p.NewValue]));
   const rej = me.RejectedEdits || [];
   const label = k => EDIT_FIELDS.find(f => f[0] === k)?.[1] || k;
-  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2>แก้ไขข้อมูลของฉัน</h2>
-    <div class="sub">แก้ช่องที่ต้องการแล้วกดส่ง เภสัชกรจะตรวจสอบก่อนบันทึกลงระบบร้าน</div>
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button><h2 class="rise">แก้ไขข้อมูลของฉัน</h2>
+    <div class="sub rise">แก้ช่องที่ต้องการแล้วกดส่ง เภสัชกรจะตรวจสอบก่อนบันทึกลงระบบร้าน</div>
     ${rej.map(r => `<div class="pend" style="margin-top:8px">✗ คำขอแก้ ${esc(label(r.Field))} ไม่ได้รับอนุมัติ${r.Note ? ': ' + esc(r.Note) : ''}</div>`).join('')}
-    <div class="ef">${EDIT_FIELDS.map(([k, t, type]) => `<label class="lb">${t}</label>
+    <div class="ef">${EDIT_FIELDS.map(([k, t, type], i) => `<div class="rise" style="--d:${i + 1}"><label class="lb">${t}</label>
       ${type === 'area' ? `<textarea id="f_${k}" rows="2" maxlength="500">${esc(c[k])}</textarea>`
         : `<input id="f_${k}" type="${type}" value="${esc(c[k])}" ${type === 'tel' ? 'inputmode="numeric" maxlength="10"' : type === 'email' ? 'maxlength="50"' : ''} autocomplete="off">`}
-      ${k in pend ? `<div class="pend">⏳ รอตรวจสอบ: ${esc(pend[k] || '(ลบข้อมูล)')}</div>` : ''}`).join('')}
+      ${k in pend ? `<div class="pend">⏳ รอตรวจสอบ: ${esc(pend[k] || '(ลบข้อมูล)')}</div>` : ''}</div>`).join('')}
     <label class="lb">หมายเหตุถึงเภสัชกร (ถ้ามี)</label><textarea id="f_note" rows="2" maxlength="300"></textarea></div>
     <button class="go" id="go">ส่งคำขอแก้ไข</button><div class="${ok ? 'okmsg' : 'err'}">${esc(msg)}</div>`;
-  view.querySelector('#bk').onclick = renderMe;
+  view.querySelector('#bk').onclick = () => renderMe();
   const btn = view.querySelector('#go');
   btn.onclick = async () => {
     const body = { note: view.querySelector('#f_note').value };
     EDIT_FIELDS.forEach(([k]) => { const v = view.querySelector('#f_' + k).value; if (v.trim() !== (c[k] || '').trim()) body[k] = v; });
     if (Object.keys(body).length === 1) return editForm('ยังไม่ได้แก้ไขข้อมูล');
-    btn.disabled = true;
-    try { me = { ...me, ...(await api('my/edit', body)) }; editForm('ส่งคำขอแล้ว เภสัชกรจะตรวจสอบและบันทึกให้', true); }
+    btn.disabled = true; btn.classList.add('loading');
+    try { me = { ...me, ...(await api('my/edit', body)) }; editForm('✓ ส่งคำขอแล้ว เภสัชกรจะตรวจสอบและบันทึกให้', true); }
     catch (e) { if (token) editForm(e.message); }
   };
   window.scrollTo(0, 0);
 }
 
+// ---------- LINE (LIFF) ----------
+const LINE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M12 3C6.5 3 2 6.6 2 11c0 3.9 3.5 7.2 8.3 7.9.3.1.8.2.9.5.1.3.1.7 0 1l-.1.9c0 .3-.2 1 .9.5s6-3.5 8.2-6.1C21.6 14 22 12.6 22 11c0-4.4-4.5-8-10-8z"/></svg>';
+const LINE_ICON_SM = LINE_ICON.replace(/22/g, '16').replace('#fff', '#06c755');
+
+function loadScript(src) {
+  return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.append(s); });
+}
+
+async function initLine(liffId) {
+  try {
+    await loadScript('https://static.line-scdn.net/liff/edge/2/sdk.js');
+    await liff.init({ liffId });
+    LINE.ready = true;
+    if (liff.isLoggedIn()) {
+      LINE.idToken = liff.getIDToken();
+      try { LINE.profile = await liff.getProfile(); } catch {}
+      if (LINE.idToken) return lineSignIn();
+    }
+    if (!me && current === 'member') memberLogin();
+  } catch { /* เปิดนอก LINE หรือ LIFF ตั้งค่าไม่ครบ — ใช้เบอร์ + PIN ตามปกติ */ }
+}
+
+// เปิดจาก LINE: ถ้าเคยผูกไว้ เข้าได้เลย / ยังไม่ผูก แสดงหน้าเข้าสู่ระบบพร้อมแถบ LINE
+async function lineSignIn() {
+  view.innerHTML = '<div class="spinner"></div><div class="muted center">กำลังเข้าสู่ระบบด้วย LINE…</div>';
+  try {
+    const d = await api('my/line', { idToken: LINE.idToken });
+    if (d.linked) { token = d.token; me = d; meTab = 'drugs'; return renderMe(true); }
+    memberLogin();
+  } catch (e) {
+    LINE.idToken = null; // token หมดอายุ ให้กดเข้าด้วย LINE ใหม่
+    memberLogin(e.message);
+  }
+}
+
+// ผูก LINE ภายหลัง (เข้าสู่ระบบด้วย PIN มาแล้ว)
+function linkLineForm(msg = '') {
+  view.innerHTML = `<button class="back" id="bk">← กลับ</button>${lineBanner()}
+    <label class="lb">ใส่ PIN เพื่อยืนยัน</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
+    <button class="go line" id="go">${LINE_ICON} เชื่อมบัญชี LINE</button><div class="err">${esc(msg)}</div>`;
+  view.querySelector('#bk').onclick = () => renderMe();
+  view.querySelector('#go').onclick = async () => {
+    try {
+      const d = await api('my/login', { phone: (me.Contact || {}).Phone || '', pin: view.querySelector('#pin').value, lineIdToken: LINE.idToken });
+      token = d.token; me = d; renderMe();
+    } catch (e) { if (me) linkLineForm(e.message); }
+  };
+}
+
 // ---------- เริ่มต้น ----------
-fetch('/api/settings').then(r => r.json()).then(s => { if (s.ShopName) document.getElementById('shop').textContent = s.ShopName; }).catch(() => {});
-api('mode').then(m => { PUBLIC = !!m.public; }).catch(() => {}).then(() => {
+(async () => {
+  try { SETTINGS = await (await fetch('/api/settings')).json(); } catch {}
+  if (SETTINGS.ShopName) { document.getElementById('shop').textContent = SETTINGS.ShopName; document.title = 'สมาชิก ' + SETTINGS.ShopName; }
+  try { PUBLIC = !!(await api('mode')).public; } catch {}
   if (PUBLIC) {
-    // เว็บไซต์: มีแค่พื้นที่สมาชิก (ต้องใช้ PIN)
+    // เว็บไซต์: มีแค่พื้นที่สมาชิก (ต้องใช้ PIN หรือ LINE ที่ผูกไว้)
     document.getElementById('subtitle').hidden = false;
-    show('member');
+    current = 'member';
+    if (SETTINGS.LiffId) { view.innerHTML = '<div class="spinner"></div>'; await initLine(SETTINGS.LiffId); if (!me && !view.querySelector('#ph')) memberLogin(); }
+    else show('member');
   } else {
     document.getElementById('tabs').hidden = false;
     show(location.hash === '#member' || location.hash === '#history' ? 'member' : 'points');
   }
-});
+})();
 </script>
 </body>
 </html>

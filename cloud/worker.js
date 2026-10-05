@@ -2,6 +2,9 @@
 // ลูกค้าดูแต้ม/ประวัติยาได้ตลอด 24 ชม. แม้คอมร้านปิด (ข้อมูล ณ เวลาที่คอมร้านเปิดล่าสุด)
 // โปรแกรมที่ร้านส่งข้อมูลมาทุก 5 นาที (/sync/push) และรับคำขอแก้ไข/เปลี่ยน PIN กลับไป (/sync/pull)
 // ต้องตั้งค่าใน Worker: D1 binding ชื่อ DB และ Secret ชื่อ SYNC_KEY (คีย์เดียวกับในโปรแกรมร้าน)
+// เข้าผ่าน LINE (ไม่บังคับ): ตัวแปร LIFF_ID และ LINE_CHANNEL_ID (Channel ID ของ LINE Login channel)
+// แจ้งเตือนผ่าน LINE OA (ไม่บังคับ): Secret LINE_MESSAGING_TOKEN และ LINE_CHANNEL_SECRET (ของ Messaging API channel)
+//   Webhook URL ใน LINE: https://<โดเมน>/line/webhook
 
 const WRONG = 'เบอร์โทรหรือ PIN ไม่ถูกต้อง (ถ้ายังไม่มี PIN ติดต่อพนักงานเพื่อตั้ง PIN)';
 const PIN_LOCK_AFTER = 5, PIN_BLOCK_AFTER = 10, SESSION_SEC = 15 * 60;
@@ -15,6 +18,7 @@ export default {
     const path = url.pathname;
     try {
       if (path.startsWith('/sync/')) return await sync(req, env, path.slice(6));
+      if (path === '/line/webhook' && req.method === 'POST') return await webhook(req, env);
       if (path.startsWith('/api/')) return json(await api(req, env, path.slice(5).replace(/\/+$/, '')));
       if (req.method !== 'GET') throw new ApiError(405, 'ไม่รองรับ');
       if (path === '/' || path === '/check' || path === '/index.html') {
@@ -113,7 +117,52 @@ async function profile(env, m) {
   const d = JSON.parse(m.data);
   d.SyncedAt = await kvGet(env, 'lastSync'); // เวลาที่คอมร้านส่งข้อมูลล่าสุด
   d.token = await newToken(env, m); // ต่ออายุทุกครั้งที่ใช้งาน
+  if (env.LINE_CHANNEL_ID) {
+    await ensureLineTable(env);
+    const link = await env.DB.prepare('SELECT MAX(notify) notify FROM line_link WHERE cid=? AND pin_ver=?').bind(m.cid, m.pin_ver).first();
+    d.LineLinked = !!(link && link.notify !== null);
+    d.LineNotify = !!(link && link.notify);
+  }
   return d;
+}
+
+// ---------- เข้าผ่าน LINE (LIFF) ----------
+// ครั้งแรกเข้าด้วยเบอร์ + PIN แล้วผูกบัญชี LINE ไว้ ครั้งต่อไปเปิดจาก LINE เข้าได้เลย
+// ผูกไว้กับ "รุ่นของ PIN": พนักงานตั้ง PIN ใหม่ที่ร้าน (เช่น ลูกค้าทำมือถือหาย) = การผูก LINE เดิมใช้ไม่ได้
+let lineTableReady = false;
+async function ensureLineTable(env) {
+  if (lineTableReady) return;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS line_link (sub TEXT PRIMARY KEY, cid INTEGER NOT NULL, pin_ver INTEGER NOT NULL, created TEXT NOT NULL, notify INTEGER NOT NULL DEFAULT 1)').run();
+  // ตารางที่สร้างจากเวอร์ชันก่อนยังไม่มีช่อง notify
+  try { await env.DB.prepare('ALTER TABLE line_link ADD COLUMN notify INTEGER NOT NULL DEFAULT 1').run(); } catch { /* มีแล้ว */ }
+  lineTableReady = true;
+}
+// ตรวจ ID token กับ LINE โดยตรง ได้รหัสผู้ใช้ LINE (sub) ที่ปลอมไม่ได้
+async function verifyLine(env, idToken) {
+  if (!env.LINE_CHANNEL_ID) throw new ApiError(400, 'ยังไม่ได้ตั้งค่าการเข้าผ่าน LINE');
+  if (!idToken || idToken.length > 4096) throw new ApiError(400, 'ข้อมูล LINE ไม่ถูกต้อง');
+  const r = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+    method: 'POST', body: new URLSearchParams({ id_token: idToken, client_id: env.LINE_CHANNEL_ID }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.sub) throw new ApiError(401, 'ยืนยันตัวตน LINE ไม่สำเร็จ กรุณาเปิดจาก LINE ใหม่');
+  return j.sub;
+}
+async function lineLogin(env, b) {
+  const sub = await verifyLine(env, str(b, 'idToken'));
+  await ensureLineTable(env);
+  const link = await env.DB.prepare('SELECT * FROM line_link WHERE sub=?').bind(sub).first();
+  if (link) {
+    const m = await env.DB.prepare('SELECT * FROM member WHERE cid=?').bind(link.cid).first();
+    if (m && !m.blocked && m.pin_ver === link.pin_ver) return { linked: true, ...(await profile(env, m)) };
+    await env.DB.prepare('DELETE FROM line_link WHERE sub=?').bind(sub).run(); // PIN ถูกตั้งใหม่ที่ร้าน / ยกเลิกสมาชิก
+  }
+  return { linked: false };
+}
+async function lineUnlink(req, env) {
+  const m = await session(req, env);
+  await ensureLineTable(env);
+  await env.DB.prepare('DELETE FROM line_link WHERE cid=?').bind(m.cid).run();
+  return profile(env, m);
 }
 
 // ---------- API หน้าสมาชิก ----------
@@ -122,14 +171,23 @@ async function api(req, env, route) {
   if (await hits(env, 'all:' + ip, 60, true) > 120) throw new ApiError(429, 'ใช้งานถี่เกินไป กรุณารอสักครู่');
   const post = req.method === 'POST';
   if (route === 'mode') return { public: true, cloud: true };
-  if (route === 'settings') return { ShopName: (await kvGet(env, 'ShopName')) || 'ร้านยามุมยาเภสัช' };
+  if (route === 'settings') return { ShopName: (await kvGet(env, 'ShopName')) || 'ร้านยามุมยาเภสัช',
+    LiffId: env.LIFF_ID && env.LINE_CHANNEL_ID ? env.LIFF_ID : '', LineOA: !!env.LINE_MESSAGING_TOKEN };
 
-  if (route === 'my/login' || route === 'my/pin') {
+  if (route === 'my/login' || route === 'my/pin' || route === 'my/line') {
     if (await hits(env, 'fail:' + ip, 1800, false) >= 8) throw new ApiError(429, 'ใส่ข้อมูลผิดหลายครั้ง กรุณารอ 30 นาที');
     if (await hits(env, 'login:' + ip, 900, true) > 30) throw new ApiError(429, 'ใช้งานถี่เกินไป กรุณารอสักครู่');
   }
   try {
     if (route === 'my/login' && post) return await login(env, await body(req));
+    if (route === 'my/line' && post) return await lineLogin(env, await body(req));
+    if (route === 'my/line/unlink' && post) return await lineUnlink(req, env);
+    if (route === 'my/line/notify' && post) {
+      const m = await session(req, env), b = await body(req);
+      await ensureLineTable(env);
+      await env.DB.prepare('UPDATE line_link SET notify=? WHERE cid=?').bind(b.on ? 1 : 0, m.cid).run();
+      return profile(env, m);
+    }
     if (route === 'my/profile') return await profile(env, await session(req, env));
     if (route === 'my/pin' && post) return await changePin(req, env, await body(req));
     if (route === 'my/logout' && post) return { ok: true };
@@ -151,6 +209,8 @@ async function api(req, env, route) {
 async function login(env, b) {
   const digits = str(b, 'phone').replace(/[^0-9]/g, ''), pin = str(b, 'pin');
   if (digits.length < 9 || !pin) throw new ApiError(400, 'กรุณาใส่เบอร์โทรและ PIN');
+  // เข้าจาก LINE ครั้งแรก: ตรวจ LINE ก่อน แล้วผูกบัญชีเมื่อ PIN ถูก
+  const lineSub = str(b, 'lineIdToken') ? await verifyLine(env, str(b, 'lineIdToken')) : null;
   // เบอร์เดียวอาจมีหลายคนในครอบครัว — หาคนที่ PIN ตรง
   const cands = (await env.DB.prepare('SELECT * FROM member WHERE phone=?').bind(digits).all()).results;
   if (!cands.length) throw new ApiError(403, WRONG);
@@ -159,6 +219,11 @@ async function login(env, b) {
     if (c.blocked || c.fail >= PIN_BLOCK_AFTER || c.locked_until > now) continue;
     if (sameText(await hashPin(pin, c.salt), c.pin_hash)) {
       await env.DB.prepare('UPDATE member SET fail=0, locked_until=0 WHERE cid=?').bind(c.cid).run();
+      if (lineSub) {
+        await ensureLineTable(env);
+        await env.DB.prepare('INSERT INTO line_link(sub,cid,pin_ver,created) VALUES(?,?,?,?) ON CONFLICT(sub) DO UPDATE SET cid=excluded.cid, pin_ver=excluded.pin_ver, created=excluded.created')
+          .bind(lineSub, c.cid, c.pin_ver, nowTh()).run();
+      }
       return profile(env, c);
     }
   }
@@ -183,6 +248,11 @@ async function changePin(req, env, b) {
     env.DB.prepare('UPDATE member SET pin_hash=?, salt=?, pin_at=?, pin_ver=pin_ver+1, fail=0, locked_until=0 WHERE cid=?').bind(hash, salt, at, m.cid),
     env.DB.prepare('INSERT INTO outbox(kind,cid,data,created) VALUES(?,?,?,?)').bind('pin', m.cid, JSON.stringify({ hash, salt, pin_at: at }), at),
   ]);
+  // ลูกค้าเปลี่ยน PIN เอง: LINE ที่ผูกไว้ยังใช้ต่อได้
+  if (env.LINE_CHANNEL_ID) {
+    await ensureLineTable(env);
+    await env.DB.prepare('UPDATE line_link SET pin_ver=? WHERE cid=? AND pin_ver=?').bind(m.pin_ver + 1, m.cid, m.pin_ver).run();
+  }
   // เครื่องอื่นที่ค้างอยู่จะหลุด เหลือแค่เครื่องนี้ (ส่ง token ใหม่ให้)
   return { ok: true, token: await newToken(env, { cid: m.cid, pin_ver: m.pin_ver + 1 }) };
 }
@@ -270,11 +340,112 @@ ON CONFLICT(cid) DO UPDATE SET phone=excluded.phone, blocked=excluded.blocked, d
   for (const d of b.drugs || [])
     st.push(env.DB.prepare('INSERT INTO drug(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').bind(d.id, JSON.stringify(d.data)));
   // รายชื่อทั้งหมดที่ยังมี PIN อยู่ — คนที่ถูกยกเลิก PIN ที่ร้านจะถูกลบออกจากระบบออนไลน์
-  if (Array.isArray(b.all)) st.push(env.DB.prepare('DELETE FROM member WHERE cid NOT IN (SELECT value FROM json_each(?))').bind(JSON.stringify(b.all)));
+  if (Array.isArray(b.all)) {
+    st.push(env.DB.prepare('DELETE FROM member WHERE cid NOT IN (SELECT value FROM json_each(?))').bind(JSON.stringify(b.all)));
+    // คนที่ถูกยกเลิก PIN: ยกเลิกการผูก LINE ด้วย (ตั้ง PIN ใหม่ภายหลัง ต้องผูก LINE ใหม่)
+    await ensureLineTable(env);
+    st.push(env.DB.prepare('DELETE FROM line_link WHERE cid NOT IN (SELECT value FROM json_each(?))').bind(JSON.stringify(b.all)));
+  }
   if (Array.isArray(b.allDrugs)) st.push(env.DB.prepare('DELETE FROM drug WHERE id NOT IN (SELECT value FROM json_each(?))').bind(JSON.stringify(b.allDrugs)));
   st.push(env.DB.prepare('DELETE FROM hits WHERE reset < ?').bind(nowSec()));
   st.push(env.DB.prepare("INSERT INTO kv(k,v) VALUES('lastSync',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(at));
   for (let i = 0; i < st.length; i += 50) await env.DB.batch(st.slice(i, i + 50));
   const count = await env.DB.prepare('SELECT COUNT(*) n FROM member').first();
-  return json({ ok: true, members: count.n, at });
+  const sent = await sendNotifications(env, b.notify, new URL(req.url).origin);
+  return json({ ok: true, members: count.n, at, sent });
+}
+
+// ---------- LINE OA: แจ้งเตือนลูกค้า (push) ----------
+// โปรแกรมร้านส่งรายการแจ้งเตือนมากับ /sync/push → ส่งเฉพาะคนที่ผูก LINE แล้วและเปิดรับแจ้งเตือน
+// push นับโควตาข้อความรายเดือนของ LINE OA (ตอบกลับใน webhook ไม่นับ)
+const liffUrl = (env, origin) => env.LIFF_ID ? 'https://liff.line.me/' + env.LIFF_ID : origin + '/';
+async function lineApi(env, path, payload) {
+  const r = await fetch('https://api.line.me/v2/bot/message/' + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.LINE_MESSAGING_TOKEN }, body: JSON.stringify(payload) });
+  if (!r.ok) console.log('LINE ' + path + ' ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  return r.ok;
+}
+
+async function sendNotifications(env, list, origin) {
+  if (!env.LINE_MESSAGING_TOKEN || !Array.isArray(list) || !list.length) return 0;
+  await ensureLineTable(env);
+  const cids = [...new Set(list.map(e => +e.cid))];
+  const links = (await env.DB.prepare(`SELECT l.sub, l.cid FROM line_link l JOIN member m ON m.cid=l.cid AND m.pin_ver=l.pin_ver
+WHERE l.notify=1 AND l.cid IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(cids)).all()).results;
+  const shop = (await kvGet(env, 'ShopName')) || 'ร้านยามุมยาเภสัช';
+  let sent = 0;
+  // Worker ฟรีเรียกออกไปได้จำกัดต่อครั้ง — โปรแกรมร้านส่งมาไม่เกิน 30 รายการต่อรอบ
+  for (const ev of list.slice(0, 30))
+    for (const l of links.filter(x => x.cid === +ev.cid)) {
+      const msg = notifyMessage(ev, shop, liffUrl(env, origin));
+      if (msg && await lineApi(env, 'push', { to: l.sub, messages: [msg] })) sent++;
+    }
+  return sent;
+}
+
+const fmt = v => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+const EDIT_LABEL = { Phone: 'เบอร์โทร', Email: 'อีเมล', BirthDate: 'วันเกิด', Address: 'ที่อยู่', Allergy: 'แพ้ยา', AllergyNote: 'อาการแพ้', Disease: 'โรคประจำตัว' };
+function notifyMessage(ev, shop, url) {
+  const button = label => ({ type: 'button', style: 'primary', color: '#0c6b53', height: 'sm', action: { type: 'uri', label, uri: url } });
+  if (ev.kind === 'points') {
+    const rows = [
+      { type: 'text', text: `บิล ${ev.code || ''} · ฿${fmt(ev.net)}`, size: 'sm', color: '#667a73', wrap: true },
+      { type: 'text', text: `+${fmt(ev.rec)} แต้ม`, size: '3xl', weight: 'bold', color: '#0c6b53', margin: 'md' },
+    ];
+    if (ev.pay) rows.push({ type: 'text', text: `ใช้แต้มเป็นส่วนลด ${fmt(ev.pay)} แต้ม`, size: 'sm', color: '#c0392b' });
+    rows.push({ type: 'separator', margin: 'lg' },
+      { type: 'box', layout: 'horizontal', margin: 'lg', contents: [
+        { type: 'text', text: 'แต้มคงเหลือ', size: 'sm', color: '#667a73' },
+        { type: 'text', text: `${fmt(ev.balance)} แต้ม`, size: 'sm', weight: 'bold', align: 'end' }] });
+    return { type: 'flex', altText: `ได้รับ +${fmt(ev.rec)} แต้ม · คงเหลือ ${fmt(ev.balance)} แต้ม`, contents: {
+      type: 'bubble', size: 'kilo',
+      header: { type: 'box', layout: 'vertical', backgroundColor: '#0c6b53', paddingAll: '16px', contents: [
+        { type: 'text', text: shop, color: '#b9f0dc', size: 'xs' },
+        { type: 'text', text: 'ขอบคุณที่ใช้บริการ', color: '#ffffff', size: 'lg', weight: 'bold' }] },
+      body: { type: 'box', layout: 'vertical', contents: rows },
+      footer: { type: 'box', layout: 'vertical', contents: [button('ดูหน้าสมาชิก')] } } };
+  }
+  if (ev.kind === 'edit') {
+    const label = EDIT_LABEL[ev.field] || 'ข้อมูล';
+    return { type: 'text', text: ev.status === 'approved'
+      ? `✅ ${shop} อัปเดต${label}ของคุณเรียบร้อยแล้ว\nดูได้ที่หน้าสมาชิก ${url}`
+      : `คำขอแก้ไข${label}ของคุณยังไม่ได้รับการอนุมัติ${ev.note ? '\nเหตุผล: ' + ev.note : ''}\nสอบถามเภสัชกรได้ที่ร้าน` };
+  }
+  if (ev.kind === 'birthday')
+    return { type: 'text', text: `🎂 สุขสันต์เดือนเกิดคุณ${ev.name || ''}!\n${shop} มีสิทธิพิเศษเดือนเกิดให้คุณ แสดงหน้าสมาชิกที่ร้านเพื่อรับสิทธิ์\n${url}` };
+  return null;
+}
+
+// ---------- LINE OA webhook: ตอบกลับอัตโนมัติ (ไม่นับโควตา) ----------
+async function webhook(req, env) {
+  if (!env.LINE_CHANNEL_SECRET || !env.LINE_MESSAGING_TOKEN) throw new ApiError(404, 'ไม่พบหน้านี้');
+  const raw = await req.text();
+  // ตรวจลายเซ็นว่ามาจาก LINE จริง
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.LINE_CHANNEL_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = b64(await crypto.subtle.sign('HMAC', key, enc.encode(raw)));
+  if (!sameText(sig, req.headers.get('x-line-signature') || '')) throw new ApiError(401, 'invalid signature');
+  const events = (JSON.parse(raw).events || []).slice(0, 20);
+  const url = liffUrl(env, new URL(req.url).origin);
+  const shop = (await kvGet(env, 'ShopName')) || 'ร้านยามุมยาเภสัช';
+  for (const ev of events) {
+    if (!ev.replyToken) continue;
+    let messages = null;
+    if (ev.type === 'follow')
+      messages = [{ type: 'text', text: `ยินดีต้อนรับสู่ ${shop} 🙏\nดูแต้มสะสม ประวัติยา และข้อมูลสมาชิกได้ที่\n${url}\n\nพิมพ์ "แต้ม" เพื่อดูแต้มคงเหลือ` }];
+    else if (ev.type === 'message' && ev.message.type === 'text') {
+      const text = ev.message.text.trim();
+      if (/แต้ม|คะแนน|point/i.test(text)) messages = [await pointsReply(env, ev.source && ev.source.userId, url)];
+      else if (/สมาชิก|member|ประวัติ|เมนู/i.test(text)) messages = [{ type: 'text', text: `หน้าสมาชิก ${shop}\n${url}` }];
+    }
+    if (messages) await lineApi(env, 'reply', { replyToken: ev.replyToken, messages });
+  }
+  return json({ ok: true });
+}
+
+async function pointsReply(env, sub, url) {
+  await ensureLineTable(env);
+  const m = sub && await env.DB.prepare('SELECT m.* FROM line_link l JOIN member m ON m.cid=l.cid AND m.pin_ver=l.pin_ver WHERE l.sub=? AND m.blocked=0').bind(sub).first();
+  if (!m) return { type: 'text', text: `ยังไม่ได้เชื่อมบัญชีสมาชิก\nเปิดลิงก์นี้แล้วใส่เบอร์โทร + PIN ครั้งเดียว:\n${url}` };
+  const d = JSON.parse(m.data), at = await kvGet(env, 'lastSync');
+  return { type: 'text', text: `คุณ${d.name} มี ${fmt(d.Points)} แต้ม (ระดับ${({ member: 'สมาชิก', silver: 'ซิลเวอร์', gold: 'โกลด์', platinum: 'แพลทินัม' })[d.Tier] || ''})${at ? `\nข้อมูล ณ ${at.slice(0, 16)}` : ''}\nดูรายละเอียด: ${url}` };
 }
